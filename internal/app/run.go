@@ -13,9 +13,11 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/ysfl/baize-mcp/internal/baize"
 	"github.com/ysfl/baize-mcp/internal/buildinfo"
 	"github.com/ysfl/baize-mcp/internal/credential"
+	"github.com/ysfl/baize-mcp/internal/mcpserver"
 	"github.com/ysfl/baize-mcp/internal/profile"
 )
 
@@ -39,6 +41,8 @@ func Run(ctx context.Context, args []string, stdin *os.File, stdout, stderr io.W
 		err = runStatus(ctx, args[1:], stdout, stderr, store, credentials)
 	case "logout":
 		err = runLogout(ctx, args[1:], stdout, stderr, store, credentials)
+	case "serve":
+		err = runServe(ctx, args[1:], stdin, stdout, stderr, store, credentials)
 	case "config-path":
 		if len(args) != 1 {
 			err = errors.New("config-path does not accept arguments")
@@ -56,6 +60,28 @@ func Run(ctx context.Context, args []string, stdin *os.File, stdout, stderr io.W
 		return fail(stderr, err)
 	}
 	return 0
+}
+
+func runServe(ctx context.Context, args []string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, profiles *profile.Store, credentials credential.Store) error {
+	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	profileName := flags.String("profile", defaultProfile, "local profile name")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("serve received unexpected positional arguments")
+	}
+	client, _, err := authenticatedClient(*profileName, profiles, credentials)
+	if err != nil {
+		return err
+	}
+	server := mcpserver.New(client)
+	transport := &mcp.IOTransport{Reader: stdin, Writer: noCloseWriter{Writer: stdout}}
+	if err := server.Run(ctx, transport); err != nil && !errors.Is(err, context.Canceled) {
+		return fmt.Errorf("run MCP server: %w", err)
+	}
+	return nil
 }
 
 func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr io.Writer, profiles *profile.Store, credentials credential.Store) error {
@@ -207,7 +233,7 @@ func writeJSON(w io.Writer, value any) error {
 }
 
 func printUsage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "Usage: baize-mcp <login|status|logout|config-path|version>")
+	_, _ = fmt.Fprintln(w, "Usage: baize-mcp <login|status|logout|serve|config-path|version>")
 }
 
 func fail(w io.Writer, err error) int {
@@ -219,4 +245,12 @@ func clearBytes(value []byte) {
 	for i := range value {
 		value[i] = 0
 	}
+}
+
+type noCloseWriter struct {
+	io.Writer
+}
+
+func (noCloseWriter) Close() error {
+	return nil
 }
