@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/google/renameio/v2"
+	renameio "github.com/google/renameio/v2/maybe"
 )
 
 const schemaVersion = 1

@@ -16,7 +16,7 @@ Baize MCP 是白泽的开源 MCP 接入组件，用于让支持 MCP 的 AI 客�
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 下载与你的系统和架构匹配的压缩包，校验 `SHA256SUMS` 后解压。也可以使用 Go 1.25 或更高版本从源码构建：
+从 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 下载与你的系统和架构匹配的压缩包，校验 `SHA256SUMS` 后解压。也可以使用 Go 1.25.12 或更高版本从源码构建：
 
 ```bash
 go build -trimpath -o baize-mcp ./cmd/baize-mcp
@@ -58,6 +58,13 @@ baize-mcp login \
 | `baize_connection_status` | 验证当前 profile 的会话是否可用 |
 | `baize_agents_list` | 分页查询经过裁剪的节点列表 |
 | `baize_agent_get` | 查询单个节点的基础状态 |
+
+## 版本与更新
+
+- 结构化更新记录：[releases/changelog.json](releases/changelog.json)
+- 完整更新记录：[CHANGELOG.md](CHANGELOG.md)
+
+每个已发布版本都会在 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 提供当前版本清单、各平台可执行文件、`release-assets.json` 和 `SHA256SUMS`。发布包同时包含项目许可证、第三方许可证清单和中英文说明。
 
 ## 安全边界
 

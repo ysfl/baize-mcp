@@ -16,7 +16,7 @@ Results contain only the agent ID, display name, status, operating system, archi
 
 ## Install
 
-Download the archive for your operating system and architecture from [GitHub Releases](https://github.com/ysfl/baize-mcp/releases), verify it with `SHA256SUMS`, and extract it. You can also build from source with Go 1.25 or later:
+Download the archive for your operating system and architecture from [GitHub Releases](https://github.com/ysfl/baize-mcp/releases), verify it with `SHA256SUMS`, and extract it. You can also build from source with Go 1.25.12 or later:
 
 ```bash
 go build -trimpath -o baize-mcp ./cmd/baize-mcp
@@ -58,6 +58,13 @@ The client configuration contains no Baize address, username, password, or sessi
 | `baize_connection_status` | Verify that the current profile has a valid session |
 | `baize_agents_list` | Read a paginated, privacy-reduced agent list |
 | `baize_agent_get` | Read the basic status of one agent |
+
+## Versions and Updates
+
+- Structured update history: [releases/changelog.json](releases/changelog.json)
+- Full update history: [CHANGELOG.md](CHANGELOG.md)
+
+Every published version provides its current version manifest, platform executables, `release-assets.json`, and `SHA256SUMS` on [GitHub Releases](https://github.com/ysfl/baize-mcp/releases). Each archive also contains the project license, third-party license notices, and Chinese and English guides.
 
 ## Security Boundary
 

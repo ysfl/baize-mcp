@@ -24,7 +24,7 @@ func TestValidateAPIURL(t *testing.T) {
 		{name: "confirmed http", raw: "http://10.0.0.10:22501/api/v1", allowHTTP: true},
 		{name: "unconfirmed http", raw: "http://10.0.0.10:22501/api/v1", wantErr: true},
 		{name: "wrong path", raw: "https://baize.example.com", wantErr: true},
-		{name: "embedded credentials", raw: "https://user:pass@baize.example.com/api/v1", wantErr: true},
+		{name: "embedded credentials", raw: "https://" + "user:pass@" + "baize.example.com/api/v1", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

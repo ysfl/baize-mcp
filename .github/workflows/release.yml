@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify release source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          test "${RELEASE_TAG}" = "v${version}"
+          test -f releases/latest.json
+          test -f "releases/${RELEASE_TAG}.md"
+          bash scripts/check-sensitive-content.sh
+          bash scripts/verify-release.sh
+          go test -race ./...
+          go vet ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Build release assets
+        run: bash scripts/build-release.sh
+      - name: Verify release assets
+        run: bash scripts/verify-release.sh
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          gh release create "${RELEASE_TAG}" dist/* \
+            --verify-tag \
+            --latest \
+            --title "Baize MCP ${version}" \
+            --notes-file "releases/${RELEASE_TAG}.md"
