@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +16,19 @@ import (
 type fakeClient struct {
 	listOptions baize.AgentListOptions
 	agentID     string
+	checkErr    error
+	listErr     error
+	getErr      error
 }
 
-func (f *fakeClient) CurrentUser(context.Context) (baize.CurrentUser, error) {
-	return baize.CurrentUser{Username: "private-user", Role: "viewer"}, nil
+func (f *fakeClient) CheckSession(context.Context) error {
+	return f.checkErr
 }
 
 func (f *fakeClient) ListAgents(_ context.Context, options baize.AgentListOptions) (baize.AgentPage, error) {
+	if f.listErr != nil {
+		return baize.AgentPage{}, f.listErr
+	}
 	f.listOptions = options
 	return baize.AgentPage{
 		Items: []baize.AgentSummary{{
@@ -33,6 +40,9 @@ func (f *fakeClient) ListAgents(_ context.Context, options baize.AgentListOption
 }
 
 func (f *fakeClient) GetAgent(_ context.Context, id string) (baize.AgentSummary, error) {
+	if f.getErr != nil {
+		return baize.AgentSummary{}, f.getErr
+	}
 	f.agentID = id
 	heartbeat := time.Date(2026, time.August, 6, 1, 2, 3, 0, time.UTC)
 	return baize.AgentSummary{
@@ -44,19 +54,7 @@ func (f *fakeClient) GetAgent(_ context.Context, id string) (baize.AgentSummary,
 func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeClient{}
-	server := New(fake)
-	clientTransport, serverTransport := mcp.NewInMemoryTransports()
-	serverSession, err := server.Connect(ctx, serverTransport, nil)
-	if err != nil {
-		t.Fatalf("server.Connect() error = %v", err)
-	}
-	defer serverSession.Close()
-	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
-	clientSession, err := client.Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatalf("client.Connect() error = %v", err)
-	}
-	defer clientSession.Close()
+	clientSession := connectClient(t, ctx, fake)
 
 	wantNames := map[string]bool{
 		"baize_connection_status": false,
@@ -106,6 +104,47 @@ func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
 	assertNoPrivateFields(t, detail)
 }
 
+func TestServerSanitizesToolErrors(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeClient{checkErr: errors.New("private endpoint https://private.example/api/v1 for private-user")}
+	clientSession := connectClient(t, ctx, fake)
+
+	statusErr := callToolError(t, ctx, clientSession, "baize_connection_status", map[string]any{})
+	for _, forbidden := range []string{"private.example", "private-user", "api/v1"} {
+		if strings.Contains(statusErr, forbidden) {
+			t.Fatalf("connection error contains %q: %s", forbidden, statusErr)
+		}
+	}
+	if !strings.Contains(statusErr, "could not be completed") {
+		t.Fatalf("unexpected sanitized connection error: %s", statusErr)
+	}
+
+	fake.checkErr = nil
+	fake.listErr = &baize.APIError{StatusCode: 403}
+	listErr := callToolError(t, ctx, clientSession, "baize_agents_list", map[string]any{})
+	if !strings.Contains(listErr, "denied this read request") {
+		t.Fatalf("unexpected sanitized API error: %s", listErr)
+	}
+}
+
+func connectClient(t *testing.T, ctx context.Context, backend Client) *mcp.ClientSession {
+	t.Helper()
+	server := New(backend)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server.Connect() error = %v", err)
+	}
+	t.Cleanup(func() { _ = serverSession.Close() })
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client.Connect() error = %v", err)
+	}
+	t.Cleanup(func() { _ = clientSession.Close() })
+	return clientSession
+}
+
 func callTool(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string, args map[string]any) string {
 	t.Helper()
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
@@ -118,6 +157,22 @@ func callTool(t *testing.T, ctx context.Context, session *mcp.ClientSession, nam
 	raw, err := json.Marshal(result.StructuredContent)
 	if err != nil {
 		t.Fatalf("Marshal structured content: %v", err)
+	}
+	return string(raw)
+}
+
+func callToolError(t *testing.T, ctx context.Context, session *mcp.ClientSession, name string, args map[string]any) string {
+	t.Helper()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		return err.Error()
+	}
+	if !result.IsError {
+		t.Fatalf("CallTool(%q) did not return a tool error: %#v", name, result.Content)
+	}
+	raw, err := json.Marshal(result.Content)
+	if err != nil {
+		t.Fatalf("Marshal error content: %v", err)
 	}
 	return string(raw)
 }

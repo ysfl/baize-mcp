@@ -26,18 +26,6 @@ type Client struct {
 	userAgent string
 }
 
-type Session struct {
-	Token    string
-	Username string
-	Role     string
-}
-
-type CurrentUser struct {
-	Username string   `json:"username"`
-	Role     string   `json:"role"`
-	Roles    []string `json:"roles"`
-}
-
 type AgentSummary struct {
 	ID              string     `json:"id"`
 	DisplayName     string     `json:"displayName"`
@@ -76,14 +64,22 @@ type agentRecord struct {
 
 type APIError struct {
 	StatusCode int
-	TraceID    string
 }
 
 func (e *APIError) Error() string {
-	if e.TraceID != "" {
-		return fmt.Sprintf("Baize returned HTTP %d (traceId=%s)", e.StatusCode, e.TraceID)
-	}
 	return fmt.Sprintf("Baize returned HTTP %d", e.StatusCode)
+}
+
+type InputError struct {
+	message string
+}
+
+func (e *InputError) Error() string {
+	return e.message
+}
+
+func newInputError(message string) error {
+	return &InputError{message: message}
 }
 
 func NewClient(apiURL, token string, allowHTTP bool, userAgent string) (*Client, error) {
@@ -136,31 +132,25 @@ func ValidateAPIURL(raw string, allowHTTP bool) (string, error) {
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
-func (c *Client) Login(ctx context.Context, username, password string) (Session, error) {
+func (c *Client) Login(ctx context.Context, username, password string) (string, error) {
 	payload := struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}{Username: username, Password: password}
 	var data struct {
-		Token    string `json:"token"`
-		Username string `json:"username"`
-		Role     string `json:"role"`
+		Token string `json:"token"`
 	}
 	if err := c.do(ctx, http.MethodPost, []string{"auth", "login"}, nil, payload, &data, false); err != nil {
-		return Session{}, err
+		return "", err
 	}
 	if strings.TrimSpace(data.Token) == "" {
-		return Session{}, errors.New("Baize login response did not include a session credential")
+		return "", errors.New("Baize login response did not include a session credential")
 	}
-	return Session{Token: data.Token, Username: data.Username, Role: data.Role}, nil
+	return data.Token, nil
 }
 
-func (c *Client) CurrentUser(ctx context.Context) (CurrentUser, error) {
-	var data CurrentUser
-	if err := c.do(ctx, http.MethodGet, []string{"auth", "profile"}, nil, nil, &data, true); err != nil {
-		return CurrentUser{}, err
-	}
-	return data, nil
+func (c *Client) CheckSession(ctx context.Context) error {
+	return c.do(ctx, http.MethodGet, []string{"auth", "profile"}, nil, nil, nil, true)
 }
 
 func (c *Client) Logout(ctx context.Context) error {
@@ -172,18 +162,18 @@ func (c *Client) Logout(ctx context.Context) error {
 
 func (c *Client) ListAgents(ctx context.Context, options AgentListOptions) (AgentPage, error) {
 	if options.Page < 1 {
-		return AgentPage{}, errors.New("page must be at least 1")
+		return AgentPage{}, newInputError("page must be at least 1")
 	}
 	if options.PageSize < 1 || options.PageSize > 100 {
-		return AgentPage{}, errors.New("page size must be between 1 and 100")
+		return AgentPage{}, newInputError("page size must be between 1 and 100")
 	}
 	search := strings.TrimSpace(options.Search)
 	if len(search) > 200 {
-		return AgentPage{}, errors.New("search must not exceed 200 characters")
+		return AgentPage{}, newInputError("search must not exceed 200 characters")
 	}
 	status := strings.TrimSpace(options.Status)
 	if len(status) > 64 {
-		return AgentPage{}, errors.New("status must not exceed 64 characters")
+		return AgentPage{}, newInputError("status must not exceed 64 characters")
 	}
 	query := url.Values{
 		"page":      {fmt.Sprintf("%d", options.Page)},
@@ -214,7 +204,7 @@ func (c *Client) ListAgents(ctx context.Context, options AgentListOptions) (Agen
 func (c *Client) GetAgent(ctx context.Context, id string) (AgentSummary, error) {
 	id = strings.TrimSpace(id)
 	if !agentIDPattern.MatchString(id) {
-		return AgentSummary{}, errors.New("agent ID must be a UUID")
+		return AgentSummary{}, newInputError("agent ID must be a UUID")
 	}
 	var data agentRecord
 	if err := c.do(ctx, http.MethodGet, []string{"agents", strings.ToLower(id)}, nil, nil, &data, true); err != nil {
@@ -267,14 +257,13 @@ func (c *Client) do(ctx context.Context, method string, segments []string, query
 		return errors.New("Baize response exceeded the allowed size")
 	}
 	var envelope struct {
-		Data    json.RawMessage `json:"data"`
-		TraceID string          `json:"traceId"`
+		Data json.RawMessage `json:"data"`
 	}
 	if len(raw) > 0 && json.Unmarshal(raw, &envelope) != nil {
 		return errors.New("Baize response was not valid JSON")
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return &APIError{StatusCode: resp.StatusCode, TraceID: safeTraceID(envelope.TraceID)}
+		return &APIError{StatusCode: resp.StatusCode}
 	}
 	if output == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil
@@ -318,18 +307,4 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func safeTraceID(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) == 0 || len(value) > 128 {
-		return ""
-	}
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("._:-", r) {
-			continue
-		}
-		return ""
-	}
-	return value
 }

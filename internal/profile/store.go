@@ -21,7 +21,6 @@ var (
 
 type Profile struct {
 	APIURL    string `json:"apiUrl"`
-	Username  string `json:"username"`
 	AllowHTTP bool   `json:"allowHttp,omitempty"`
 }
 

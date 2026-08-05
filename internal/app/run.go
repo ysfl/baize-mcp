@@ -126,7 +126,7 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	session, err := client.Login(requestCtx, strings.TrimSpace(*username), string(password))
+	token, err := client.Login(requestCtx, strings.TrimSpace(*username), string(password))
 	if err != nil {
 		return err
 	}
@@ -135,10 +135,10 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 	if oldTokenErr != nil && !errors.Is(oldTokenErr, credential.ErrNotFound) {
 		return oldTokenErr
 	}
-	if err := credentials.Set(*profileName, session.Token); err != nil {
+	if err := credentials.Set(*profileName, token); err != nil {
 		return err
 	}
-	item := profile.Profile{APIURL: normalizedURL, Username: session.Username, AllowHTTP: *allowHTTP}
+	item := profile.Profile{APIURL: normalizedURL, AllowHTTP: *allowHTTP}
 	if err := profiles.Put(*profileName, item); err != nil {
 		if oldTokenErr == nil {
 			_ = credentials.Set(*profileName, oldToken)
@@ -147,7 +147,7 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 		}
 		return err
 	}
-	return writeJSON(stdout, map[string]any{"profile": *profileName, "username": session.Username, "authenticated": true})
+	return writeJSON(stdout, map[string]any{"authenticated": true})
 }
 
 func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer, profiles *profile.Store, credentials credential.Store) error {
@@ -166,11 +166,10 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer, pro
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	user, err := client.CurrentUser(requestCtx)
-	if err != nil {
+	if err := client.CheckSession(requestCtx); err != nil {
 		return err
 	}
-	return writeJSON(stdout, map[string]any{"profile": *profileName, "username": user.Username, "role": user.Role, "authenticated": true})
+	return writeJSON(stdout, map[string]any{"authenticated": true})
 }
 
 func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer, profiles *profile.Store, credentials credential.Store) error {
@@ -200,7 +199,7 @@ func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer, pro
 	if err := credentials.Delete(*profileName); err != nil && !errors.Is(err, credential.ErrNotFound) {
 		return err
 	}
-	return writeJSON(stdout, map[string]any{"profile": *profileName, "authenticated": false})
+	return writeJSON(stdout, map[string]any{"authenticated": false})
 }
 
 func authenticatedClient(profileName string, profiles *profile.Store, credentials credential.Store) (*baize.Client, profile.Profile, error) {

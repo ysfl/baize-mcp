@@ -163,24 +163,20 @@ func TestClientAuthenticationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	session, err := loginClient.Login(context.Background(), "operator", "secret")
+	token, err := loginClient.Login(context.Background(), "operator", "secret")
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	if session.Token != "session-token" {
-		t.Fatalf("Login() token = %q", session.Token)
+	if token != "session-token" {
+		t.Fatalf("Login() token = %q", token)
 	}
 
-	client, err := NewClient(server.URL+"/api/v1", session.Token, true, "test")
+	client, err := NewClient(server.URL+"/api/v1", token, true, "test")
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	user, err := client.CurrentUser(context.Background())
-	if err != nil {
-		t.Fatalf("CurrentUser() error = %v", err)
-	}
-	if user.Username != "operator" || user.Role != "viewer" {
-		t.Fatalf("CurrentUser() = %#v", user)
+	if err := client.CheckSession(context.Background()); err != nil {
+		t.Fatalf("CheckSession() error = %v", err)
 	}
 	if err := client.Logout(context.Background()); err != nil {
 		t.Fatalf("Logout() error = %v", err)
@@ -206,8 +202,8 @@ func TestClientBlocksCrossOriginRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	if _, err := client.CurrentUser(context.Background()); err == nil {
-		t.Fatal("CurrentUser() followed a cross-origin redirect")
+	if err := client.CheckSession(context.Background()); err == nil {
+		t.Fatal("CheckSession() followed a cross-origin redirect")
 	}
 	if receivedAuthorization.Load() {
 		t.Fatal("cross-origin target received Authorization header")
@@ -225,16 +221,16 @@ func TestClientDoesNotExposeErrorBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	_, err = client.CurrentUser(context.Background())
+	err = client.CheckSession(context.Background())
 	if err == nil {
-		t.Fatal("CurrentUser() error = nil")
+		t.Fatal("CheckSession() error = nil")
 	}
 	if strings.Contains(err.Error(), "do-not-return") {
 		t.Fatalf("error exposed response body: %v", err)
 	}
 }
 
-func TestClientRejectsUnsafeTraceID(t *testing.T) {
+func TestClientDoesNotExposeTraceID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte("{\"traceId\":\"trace-1\\nsecret\"}"))
@@ -245,12 +241,12 @@ func TestClientRejectsUnsafeTraceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
-	_, err = client.CurrentUser(context.Background())
+	err = client.CheckSession(context.Background())
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
-		t.Fatalf("CurrentUser() error = %v, want APIError", err)
+		t.Fatalf("CheckSession() error = %v, want APIError", err)
 	}
-	if apiErr.TraceID != "" {
-		t.Fatalf("unsafe trace ID was retained: %q", apiErr.TraceID)
+	if strings.Contains(err.Error(), "trace-1") || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error exposed trace data: %v", err)
 	}
 }

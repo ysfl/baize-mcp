@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -13,7 +14,7 @@ import (
 )
 
 type Client interface {
-	CurrentUser(context.Context) (baize.CurrentUser, error)
+	CheckSession(context.Context) error
 	ListAgents(context.Context, baize.AgentListOptions) (baize.AgentPage, error)
 	GetAgent(context.Context, string) (baize.AgentSummary, error)
 }
@@ -46,8 +47,8 @@ func New(client Client) *mcp.Server {
 		"Check Baize connection",
 		"Checks whether the saved local session can access Baize. Connection addresses and credentials are not returned.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, connectionStatusOutput, error) {
-		if _, err := client.CurrentUser(ctx); err != nil {
-			return nil, connectionStatusOutput{}, err
+		if err := client.CheckSession(ctx); err != nil {
+			return nil, connectionStatusOutput{}, toolError(err)
 		}
 		return nil, connectionStatusOutput{Connected: true}, nil
 	})
@@ -69,7 +70,7 @@ func New(client Client) *mcp.Server {
 			Search:   strings.TrimSpace(input.Search),
 			Status:   strings.TrimSpace(input.Status),
 		})
-		return nil, page, err
+		return nil, page, toolError(err)
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -78,10 +79,36 @@ func New(client Client) *mcp.Server {
 		"Returns privacy-reduced details for one agent. Addresses, fingerprints, capabilities, and credentials are excluded.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input agentGetInput) (*mcp.CallToolResult, baize.AgentSummary, error) {
 		item, err := client.GetAgent(ctx, input.ID)
-		return nil, item, err
+		return nil, item, toolError(err)
 	})
 
 	return server
+}
+
+func toolError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var inputErr *baize.InputError
+	if errors.As(err, &inputErr) {
+		return errors.New(inputErr.Error())
+	}
+	var apiErr *baize.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.StatusCode {
+		case 401:
+			return errors.New("the saved Baize session is no longer valid")
+		case 403:
+			return errors.New("Baize denied this read request")
+		case 404:
+			return errors.New("the requested Baize resource was not found")
+		case 429:
+			return errors.New("Baize temporarily limited this request")
+		default:
+			return errors.New("Baize could not complete this request")
+		}
+	}
+	return errors.New("the Baize request could not be completed")
 }
 
 func readOnlyTool(name, title, description string) *mcp.Tool {

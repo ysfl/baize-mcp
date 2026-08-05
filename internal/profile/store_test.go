@@ -11,7 +11,7 @@ import (
 func TestStoreRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config", "profiles.json")
 	store := NewStore(path)
-	want := Profile{APIURL: "https://baize.example.com/api/v1", Username: "operator"}
+	want := Profile{APIURL: "https://baize.example.com/api/v1"}
 	if err := store.Put("prod", want); err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}

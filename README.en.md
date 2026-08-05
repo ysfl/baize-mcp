@@ -24,7 +24,7 @@ go build -trimpath -o baize-mcp ./cmd/baize-mcp
 
 ## Sign In
 
-Sign in from an interactive local terminal. The password is never placed in command arguments or configuration files:
+Sign in from an interactive local terminal. The username is used only for that sign-in request and is not saved in the profile. The password is never placed in command arguments or configuration files:
 
 ```bash
 baize-mcp login \
@@ -69,6 +69,7 @@ Every published version provides its current version manifest, platform executab
 ## Security Boundary
 
 - Connection settings stay in the current operating-system user's configuration directory.
+- Usernames are not saved in profiles, and command results report only whether authentication succeeded.
 - Login passwords are not written to configuration files.
 - Login sessions are protected by the operating system's credential store and are never returned by MCP tools.
 - MCP access remains limited to resources already allowed for the signed-in Baize user.
