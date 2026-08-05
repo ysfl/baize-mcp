@@ -5,6 +5,5 @@ coverage.out
 dist/
 *.log
 *.test
-baize-mcp
-baize-mcp.exe
-
+/baize-mcp
+/baize-mcp.exe
