@@ -51,9 +51,11 @@ for target in "${targets[@]}"; do
   fi
   CGO_ENABLED=0 GOOS="${target_os}" GOARCH="${target_arch}" \
     go build -trimpath \
-    -ldflags "-s -w -X github.com/ysfl/baize-mcp/internal/buildinfo.Version=${VERSION}" \
+    -ldflags "-s -w -X github.com/ysfl/baize-mcp/internal/buildinfo.Version=${VERSION} -X github.com/ysfl/baize-mcp/internal/buildinfo.ReleaseSelfCheck=required" \
     -o "${stage_dir}/${binary_name}" ./cmd/baize-mcp
   cp "${ROOT_DIR}/LICENSE" "${ROOT_DIR}/README.md" "${ROOT_DIR}/README.en.md" "${ROOT_DIR}/VERSION" "${stage_dir}/"
+  binary_checksum="$(sha256_file "${stage_dir}/${binary_name}")"
+  printf '%s  %s\n' "${binary_checksum}" "${binary_name}" > "${stage_dir}/baize-mcp.sha256"
 
   notices_file="${stage_dir}/THIRD_PARTY_NOTICES.md"
   licenses_dir="${stage_dir}/third-party-licenses"
@@ -78,11 +80,11 @@ for target in "${targets[@]}"; do
     archive_name="${package_name}.zip"
     (
       cd "${stage_dir}"
-      zip -q -X -r "${DIST_DIR}/${archive_name}" "${binary_name}" LICENSE README.md README.en.md VERSION THIRD_PARTY_NOTICES.md third-party-licenses
+      zip -q -X -r "${DIST_DIR}/${archive_name}" "${binary_name}" baize-mcp.sha256 LICENSE README.md README.en.md VERSION THIRD_PARTY_NOTICES.md third-party-licenses
     )
   else
     archive_name="${package_name}.tar.gz"
-    tar -C "${stage_dir}" -czf "${DIST_DIR}/${archive_name}" "${binary_name}" LICENSE README.md README.en.md VERSION THIRD_PARTY_NOTICES.md third-party-licenses
+    tar -C "${stage_dir}" -czf "${DIST_DIR}/${archive_name}" "${binary_name}" baize-mcp.sha256 LICENSE README.md README.en.md VERSION THIRD_PARTY_NOTICES.md third-party-licenses
   fi
 
   checksum="$(sha256_file "${DIST_DIR}/${archive_name}")"

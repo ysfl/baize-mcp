@@ -24,6 +24,9 @@ import (
 const defaultProfile = "default"
 
 func Run(ctx context.Context, args []string, stdin *os.File, stdout, stderr io.Writer) int {
+	if err := buildinfo.VerifyExecutable(); err != nil {
+		return fail(stderr, err)
+	}
 	if len(args) == 0 {
 		printUsage(stderr)
 		return 2

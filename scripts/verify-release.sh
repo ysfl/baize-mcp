@@ -51,6 +51,27 @@ if [[ -d "${ROOT_DIR}/dist" ]]; then
       shasum -a 256 -c SHA256SUMS >/dev/null
     fi
   )
+
+  for archive in "${ROOT_DIR}"/dist/baize-mcp_*.tar.gz; do
+    [[ -e "${archive}" ]] || continue
+    archive_entries="$(tar -tzf "${archive}")"
+    if ! grep -Eq '(^|/)baize-mcp\.sha256$' <<<"${archive_entries}"; then
+      echo "release archive is missing baize-mcp.sha256: ${archive}" >&2
+      exit 1
+    fi
+  done
+  for archive in "${ROOT_DIR}"/dist/baize-mcp_*.zip; do
+    [[ -e "${archive}" ]] || continue
+    if ! command -v unzip >/dev/null 2>&1; then
+      echo "unzip is required to verify Windows release archives" >&2
+      exit 1
+    fi
+    archive_entries="$(unzip -Z1 "${archive}")"
+    if ! grep -Eq '(^|/)baize-mcp\.sha256$' <<<"${archive_entries}"; then
+      echo "release archive is missing baize-mcp.sha256: ${archive}" >&2
+      exit 1
+    fi
+  done
 fi
 
 echo "release metadata verified for v${VERSION}"
