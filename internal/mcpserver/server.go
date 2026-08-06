@@ -56,7 +56,7 @@ func New(client Client) *mcp.Server {
 	mcp.AddTool(server, readOnlyTool(
 		"baize_agents_list",
 		"List Baize agents",
-		"Returns a paginated, privacy-reduced list of agents. Addresses, fingerprints, capabilities, and credentials are excluded.",
+		"Returns a paginated list of agents with privacy-protected status information. Addresses, fingerprints, capabilities, and credentials are excluded.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input agentsListInput) (*mcp.CallToolResult, baize.AgentPage, error) {
 		if input.Page == 0 {
 			input.Page = 1
@@ -76,7 +76,7 @@ func New(client Client) *mcp.Server {
 	mcp.AddTool(server, readOnlyTool(
 		"baize_agent_get",
 		"Get Baize agent",
-		"Returns privacy-reduced details for one agent. Addresses, fingerprints, capabilities, and credentials are excluded.",
+		"Returns privacy-protected status information for one agent. Addresses, fingerprints, capabilities, and credentials are excluded.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input agentGetInput) (*mcp.CallToolResult, baize.AgentSummary, error) {
 		item, err := client.GetAgent(ctx, input.ID)
 		return nil, item, toolError(err)

@@ -16,7 +16,7 @@ Results contain only the agent ID, display name, status, operating system, archi
 
 ## Install
 
-Download the archive for your operating system and architecture from [GitHub Releases](https://github.com/ysfl/baize-mcp/releases), verify it with `SHA256SUMS`, and extract it. You can also build from source with Go 1.25.12 or later:
+Download and fully extract the archive for your operating system and architecture from [GitHub Releases](https://github.com/ysfl/baize-mcp/releases). The program automatically checks the executable SHA-256 using the integrity file shipped beside it; keep the archive contents together. This startup check detects corrupted or incomplete installations, while `SHA256SUMS` remains available as an optional release-file verification entry point. You can also build from source with Go 1.25.12 or later:
 
 ```bash
 go build -trimpath -o baize-mcp ./cmd/baize-mcp
@@ -56,7 +56,7 @@ The client configuration contains no Baize address, username, password, or sessi
 | Tool | Purpose |
 |---|---|
 | `baize_connection_status` | Verify that the current profile has a valid session |
-| `baize_agents_list` | Read a paginated, privacy-reduced agent list |
+| `baize_agents_list` | Read a paginated list of agents with privacy-protected status information |
 | `baize_agent_get` | Read the basic status of one agent |
 
 ## Versions and Updates
@@ -74,9 +74,13 @@ Every published version provides its current version manifest, platform executab
 - Login sessions are protected by the operating system's credential store and are never returned by MCP tools.
 - MCP access remains limited to resources already allowed for the signed-in Baize user.
 - All currently available tools are read-only and non-destructive.
-- Published content describes available behavior only and does not include unreleased features.
+- Release archives verify executable integrity at startup and refuse to run when the integrity file is missing or does not match.
 
 Follow [SECURITY.md](SECURITY.md) to report security issues privately. Do not post credentials, server addresses, or runtime logs in public issues.
+
+## Future Direction
+
+This version is read-only. Future releases may add controlled write operations after permission scope, explicit confirmation, risk prompts, auditability, and rollback constraints are in place; formal release notes will define the actual scope.
 
 ## License
 

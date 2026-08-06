@@ -16,7 +16,7 @@ Baize MCP 是白泽的开源 MCP 接入组件，用于让支持 MCP 的 AI 客�
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 下载与你的系统和架构匹配的压缩包，校验 `SHA256SUMS` 后解压。也可以使用 Go 1.25.12 或更高版本从源码构建：
+从 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 下载与你的系统和架构匹配的压缩包并完整解压。程序启动时会自动校验压缩包随附的可执行文件 SHA-256；请保留压缩包内的校验文件。这个自检用于发现文件损坏或安装不完整，`SHA256SUMS` 仍作为可选的发布文件校验入口。也可以使用 Go 1.25.12 或更高版本从源码构建：
 
 ```bash
 go build -trimpath -o baize-mcp ./cmd/baize-mcp
@@ -56,7 +56,7 @@ baize-mcp login \
 | 工具 | 作用 |
 |---|---|
 | `baize_connection_status` | 验证当前 profile 的会话是否可用 |
-| `baize_agents_list` | 分页查询经过裁剪的节点列表 |
+| `baize_agents_list` | 分页查询经过隐私保护的节点状态信息 |
 | `baize_agent_get` | 查询单个节点的基础状态 |
 
 ## 版本与更新
@@ -74,9 +74,13 @@ baize-mcp login \
 - 登录会话由系统凭据存储保护，不通过 MCP 工具返回。
 - MCP 只能访问当前登录用户在白泽中已有权限覆盖的资源。
 - 所有当前工具均为只读、非破坏性工具。
-- 当前发布内容只描述已经提供的能力，不包含未发布功能。
+- 发布包启动时会自动校验可执行文件完整性；校验文件缺失或不匹配时不会继续运行。
 
 安全问题请按 [SECURITY.md](SECURITY.md) 中的方式私下报告，不要在公开 Issue 中提交凭据、服务器地址或运行日志。
+
+## 未来方向
+
+当前版本只提供只读能力。后续计划在完成权限范围、明确确认、风险提示、审计和可回滚约束后，逐步增加受控写操作；具体能力以正式版本说明为准。
 
 ## 许可证
 
