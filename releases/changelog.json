@@ -1,5 +1,34 @@
 {
   "schemaVersion": "baize.mcp.changelog.v1",
-  "generatedAt": "2026-08-06T00:00:00Z",
-  "entries": []
+  "generatedAt": "2026-08-12T08:25:46Z",
+  "entries": [
+    {
+      "version": "0.1.0",
+      "tag": "v0.1.0",
+      "channel": "stable",
+      "releasedAt": "2026-08-12",
+      "minimumBaizeVersion": "0.2.1",
+      "transport": "stdio",
+      "title": {
+        "zh": "首个可运行版本",
+        "en": "First runnable release"
+      },
+      "summary": {
+        "zh": "通过安全的本机登录和三个只读工具，在 AI 软件、IDE 与终端客户端中查看经过隐私保护的白泽节点状态。",
+        "en": "Use secure local sign-in and three read-only tools to view privacy-protected Baize agent status from AI applications, IDEs, and terminal clients."
+      },
+      "items": {
+        "zh": [
+          "支持连接检查、节点分页列表和单节点基础状态。",
+          "支持 Linux、macOS、Windows 的 amd64 与 arm64 发布包。",
+          "发布包启动时自动校验可执行文件完整性。"
+        ],
+        "en": [
+          "Supports connection checks, paginated agent lists, and basic status for one agent.",
+          "Provides amd64 and arm64 archives for Linux, macOS, and Windows.",
+          "Automatically verifies executable integrity at startup."
+        ]
+      }
+    }
+  ]
 }

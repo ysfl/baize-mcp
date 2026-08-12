@@ -8,8 +8,24 @@ This file records user-visible changes in published Baize MCP versions.
 
 ### 中文
 
-- 首个版本尚未发布。
+- 暂无未发布变更。
 
 ### English
 
-- The first version has not been published yet.
+- No unreleased changes.
+
+## 0.1.0 - 2026-08-12
+
+### 中文
+
+- 提供本机安全登录、会话检查、退出登录和多 profile 支持。
+- 提供连接检查、节点分页列表和单节点基础状态三个只读 MCP 工具。
+- 工具结果仅包含经过隐私保护的必要状态信息，底层错误不会透传连接、身份或追踪信息。
+- 提供 Linux、macOS、Windows 的 amd64 与 arm64 发布包，并在启动时自动校验可执行文件完整性。
+
+### English
+
+- Added secure local sign-in, session checks, sign-out, and multiple profiles.
+- Added three read-only MCP tools for connection checks, paginated agent lists, and basic status for one agent.
+- Tool results expose only necessary, privacy-protected status information, while lower-level errors exclude connection, identity, and trace details.
+- Added amd64 and arm64 release archives for Linux, macOS, and Windows with automatic executable integrity checks at startup.
