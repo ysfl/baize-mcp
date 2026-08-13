@@ -61,8 +61,6 @@ type AgentListOptions struct {
 	Architecture string
 	Status       string
 	GroupID      string
-	TagKey       string
-	TagValue     string
 	SortBy       string
 	SortOrder    string
 }
@@ -197,8 +195,6 @@ func (c *Client) ListAgents(ctx context.Context, options AgentListOptions) (Agen
 		{name: "agent version", value: options.AgentVersion, limit: 64, query: "agent_version"},
 		{name: "architecture", value: options.Architecture, limit: 64, query: "arch"},
 		{name: "status", value: options.Status, limit: 64, query: "status"},
-		{name: "tag key", value: options.TagKey, limit: 128, query: "tag_key"},
-		{name: "tag value", value: options.TagValue, limit: 256, query: "tag_value"},
 		{name: "sort field", value: options.SortBy, limit: 64, query: "sort_by"},
 	}
 	query := url.Values{

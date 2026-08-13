@@ -8,12 +8,12 @@ This file records user-visible changes in published Baize MCP versions.
 
 ### 中文
 
-- 节点列表工具支持按别名、系统、地区、Agent 版本、架构、分组和标签进一步定位节点，并支持选择排序字段与方向。
+- 节点列表工具支持按别名、系统、地区、Agent 版本、架构和分组进一步定位节点，并支持选择排序字段与方向。
 - 保持三个只读工具名称与隐私保护结果不变。
 
 ### English
 
-- The agent list tool can further locate nodes by alias, system, region, Agent version, architecture, group, and tags, with selectable sorting.
+- The agent list tool can further locate nodes by alias, system, region, Agent version, architecture, and group, with selectable sorting.
 - The three read-only tool names and privacy-protected results remain unchanged.
 
 ## 0.1.0 - 2026-08-12

@@ -57,8 +57,8 @@ func TestClientReadsPrivacyReducedAgents(t *testing.T) {
 			wantQuery := map[string]string{
 				"search": "web", "alias": "frontend", "system": "linux", "region": "shanghai",
 				"agent_version": "0.2", "arch": "arm64", "status": "online",
-				"group_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "tag_key": "role", "tag_value": "api",
-				"sort_by": "lastHeartbeatAt", "sort_order": "desc",
+				"group_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+				"sort_by":  "lastHeartbeatAt", "sort_order": "desc",
 			}
 			for name, want := range wantQuery {
 				if got := r.URL.Query().Get(name); got != want {
@@ -81,8 +81,8 @@ func TestClientReadsPrivacyReducedAgents(t *testing.T) {
 	page, err := client.ListAgents(context.Background(), AgentListOptions{
 		Page: 2, PageSize: 5, Search: " web ", Alias: " frontend ", System: " linux ", Region: " shanghai ",
 		AgentVersion: " 0.2 ", Architecture: " arm64 ", Status: " online ",
-		GroupID: " AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE ", TagKey: " role ", TagValue: " api ",
-		SortBy: " lastHeartbeatAt ", SortOrder: " DESC ",
+		GroupID: " AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE ",
+		SortBy:  " lastHeartbeatAt ", SortOrder: " DESC ",
 	})
 	if err != nil {
 		t.Fatalf("ListAgents() error = %v", err)
@@ -133,9 +133,6 @@ func TestClientRejectsInvalidAgentQuery(t *testing.T) {
 	}
 	if _, err := client.ListAgents(context.Background(), AgentListOptions{Page: 1, PageSize: 20, SortBy: "private_field"}); err == nil {
 		t.Fatal("ListAgents() accepted an unsupported sort field")
-	}
-	if _, err := client.ListAgents(context.Background(), AgentListOptions{Page: 1, PageSize: 20, TagValue: strings.Repeat("x", 257)}); err == nil {
-		t.Fatal("ListAgents() accepted an oversized tag value")
 	}
 	if _, err := client.GetAgent(context.Background(), "../auth/profile"); err == nil {
 		t.Fatal("GetAgent() accepted an invalid ID")

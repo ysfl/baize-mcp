@@ -9,7 +9,7 @@ Use [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) as the source 
 ## Available Capabilities
 
 - Check whether a saved Baize session is valid.
-- List server agents with pagination and filters for name, alias, system, region, architecture, Agent version, status, groups, or tags, with selectable stable sort fields and direction.
+- List server agents with pagination and filters for name, alias, system, region, architecture, Agent version, status, or groups, with selectable stable sort fields and direction.
 - Read the basic status of one server agent.
 
 Results contain only the agent ID, display name, status, operating system, architecture, Agent version, and last heartbeat. Connection addresses, IP addresses, fingerprints, capability lists, and credentials are excluded.

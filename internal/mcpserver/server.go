@@ -36,8 +36,6 @@ type agentsListInput struct {
 	Architecture string `json:"architecture,omitempty" jsonschema:"optional system architecture filter"`
 	Status       string `json:"status,omitempty" jsonschema:"optional Baize agent status filter"`
 	GroupID      string `json:"groupId,omitempty" jsonschema:"optional Baize group UUID"`
-	TagKey       string `json:"tagKey,omitempty" jsonschema:"optional agent tag key filter"`
-	TagValue     string `json:"tagValue,omitempty" jsonschema:"optional agent tag value filter"`
 	SortBy       string `json:"sortBy,omitempty" jsonschema:"optional sort field: created_at, createdAt, updated_at, updatedAt, last_heartbeat_at, lastHeartbeatAt, registered_at, registeredAt, hostname, alias, status, agent_version, agentVersion, os_type, or osType"`
 	SortOrder    string `json:"sortOrder,omitempty" jsonschema:"optional sort direction: asc or desc"`
 }
@@ -85,8 +83,6 @@ func New(client Client) *mcp.Server {
 			Architecture: strings.TrimSpace(input.Architecture),
 			Status:       strings.TrimSpace(input.Status),
 			GroupID:      strings.TrimSpace(input.GroupID),
-			TagKey:       strings.TrimSpace(input.TagKey),
-			TagValue:     strings.TrimSpace(input.TagValue),
 			SortBy:       strings.TrimSpace(input.SortBy),
 			SortOrder:    strings.TrimSpace(input.SortOrder),
 		})
