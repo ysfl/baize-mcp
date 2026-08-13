@@ -70,6 +70,16 @@ After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/sk
 
 Every published version provides its current version manifest, platform executables, `release-assets.json`, and `SHA256SUMS` on [GitHub Releases](https://github.com/ysfl/baize-mcp/releases). Each archive also contains the project license, third-party license notices, and Chinese and English guides.
 
+### Update an installed version
+
+From the previously cloned [Baize public entry](https://github.com/ysfl/baize), use the [AI access upgrader](https://github.com/ysfl/baize/blob/main/scripts/upgrade-ai-access.sh):
+
+```bash
+bash scripts/upgrade-ai-access.sh --lang en
+```
+
+It updates the public access entry, installs the current stable MCP, and refreshes the Skill; the archive and executable are verified automatically. The upgrade does not delete the local profile or operating-system credential store. Close AI clients that use MCP before upgrading, then reopen them afterward. On Windows, use `upgrade-ai-access.ps1`; manual installations can download the target platform archive from Releases and replace the executable and `baize-mcp.sha256` in the same directory.
+
 ## Security Boundary
 
 - Connection settings stay in the current operating-system user's configuration directory.

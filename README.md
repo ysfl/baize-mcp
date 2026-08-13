@@ -70,6 +70,16 @@ baize-mcp login \
 
 每个已发布版本都会在 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 提供当前版本清单、各平台可执行文件、`release-assets.json` 和 `SHA256SUMS`。发布包同时包含项目许可证、第三方许可证清单和中英文说明。
 
+### 更新已安装版本
+
+推荐在之前克隆的 [Baize 公开入口](https://github.com/ysfl/baize) 目录中运行 [AI 接入升级器](https://github.com/ysfl/baize/blob/main/scripts/upgrade-ai-access.sh)：
+
+```bash
+bash scripts/upgrade-ai-access.sh --lang zh
+```
+
+它会更新公开接入入口，安装当前正式 MCP 并同步 Skill；下载包和可执行文件会自动校验。升级不会删除本机 profile 或系统凭据存储。升级前请退出正在使用 MCP 的 AI 客户端，完成后再重新打开。Windows 使用对应的 `upgrade-ai-access.ps1`；手动安装用户也可以从 Releases 下载目标平台归档，替换同一目录中的程序和 `baize-mcp.sha256`。
+
 ## 安全边界
 
 - 连接信息保存在当前系统用户的配置目录。
