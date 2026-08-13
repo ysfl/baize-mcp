@@ -14,11 +14,15 @@ import (
 )
 
 type fakeClient struct {
-	listOptions baize.AgentListOptions
-	agentID     string
-	checkErr    error
-	listErr     error
-	getErr      error
+	listOptions         baize.AgentListOptions
+	agentID             string
+	templateListOptions baize.CommandTemplateListOptions
+	planID              string
+	taskID              string
+	checkErr            error
+	listErr             error
+	getErr              error
+	writeErr            error
 }
 
 func (f *fakeClient) CheckSession(context.Context) error {
@@ -51,15 +55,76 @@ func (f *fakeClient) GetAgent(_ context.Context, id string) (baize.AgentSummary,
 	}, nil
 }
 
-func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
+func (f *fakeClient) ListCommandTemplates(_ context.Context, options baize.CommandTemplateListOptions) (baize.CommandTemplatePage, error) {
+	if f.listErr != nil {
+		return baize.CommandTemplatePage{}, f.listErr
+	}
+	f.templateListOptions = options
+	return baize.CommandTemplatePage{Items: []baize.CommandTemplateSummary{{ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Name: "Restart service", Status: "enabled", RiskLevel: "low"}}, Total: 1, Page: options.Page, PageSize: options.PageSize}, nil
+}
+
+func (f *fakeClient) PreviewCommandTemplate(_ context.Context, options baize.CommandTemplateRenderOptions) (baize.CommandTemplateRenderResult, error) {
+	if f.writeErr != nil {
+		return baize.CommandTemplateRenderResult{}, f.writeErr
+	}
+	return baize.CommandTemplateRenderResult{TemplateID: options.TemplateID, TemplateName: "Restart service", PrecheckPassed: true, DryRun: true}, nil
+}
+
+func (f *fakeClient) CreateCommandPlan(_ context.Context, options baize.CommandPlanCreateOptions) (baize.PlanSummary, error) {
+	if f.writeErr != nil {
+		return baize.PlanSummary{}, f.writeErr
+	}
+	f.planID = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+	return baize.PlanSummary{ID: f.planID, TemplateID: options.TemplateID, TargetAgentIDs: options.TargetAgentIDs, Status: "ready"}, nil
+}
+
+func (f *fakeClient) GetCommandPlan(_ context.Context, id string) (baize.PlanSummary, error) {
+	if f.writeErr != nil {
+		return baize.PlanSummary{}, f.writeErr
+	}
+	return baize.PlanSummary{ID: id, Status: "ready"}, nil
+}
+
+func (f *fakeClient) ExecuteCommandPlan(_ context.Context, id string, _ baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error) {
+	if f.writeErr != nil {
+		return baize.PlanExecutionSummary{}, f.writeErr
+	}
+	f.planID = id
+	f.taskID = "cccccccc-dddd-eeee-ffff-000000000000"
+	return baize.PlanExecutionSummary{Plan: baize.PlanSummary{ID: id, Status: "executed"}, Task: baize.TaskSummary{ID: f.taskID, Status: "pending"}}, nil
+}
+
+func (f *fakeClient) GetExecTask(_ context.Context, id string) (baize.TaskSummary, error) {
+	if f.writeErr != nil {
+		return baize.TaskSummary{}, f.writeErr
+	}
+	return baize.TaskSummary{ID: id, Status: "pending"}, nil
+}
+
+func (f *fakeClient) CancelExecTask(_ context.Context, id string) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.taskID = id
+	return nil
+}
+
+func TestServerExposesReadAndWriteTools(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeClient{}
 	clientSession := connectClient(t, ctx, fake)
 
 	wantNames := map[string]bool{
-		"baize_connection_status": false,
-		"baize_agents_list":       false,
-		"baize_agent_get":         false,
+		"baize_connection_status":        false,
+		"baize_agents_list":              false,
+		"baize_agent_get":                false,
+		"baize_command_templates_list":   false,
+		"baize_command_template_preview": false,
+		"baize_command_plan_create":      false,
+		"baize_command_plan_get":         false,
+		"baize_command_plan_execute":     false,
+		"baize_exec_task_get":            false,
+		"baize_exec_task_cancel":         false,
 	}
 	for tool, err := range clientSession.Tools(ctx, nil) {
 		if err != nil {
@@ -69,11 +134,19 @@ func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
 			t.Fatalf("unexpected tool %q", tool.Name)
 		}
 		wantNames[tool.Name] = true
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
-			t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
+		if tool.Annotations == nil {
+			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint {
-			t.Fatalf("tool %q is not marked non-destructive", tool.Name)
+		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_exec_task_get"
+		if readOnly {
+			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
+				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
+			}
+			if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint {
+				t.Fatalf("tool %q is not marked non-destructive", tool.Name)
+			}
+		} else if tool.Annotations.ReadOnlyHint || tool.Annotations.IdempotentHint {
+			t.Fatalf("write tool %q has read-only or idempotent annotations", tool.Name)
 		}
 		if tool.Name == "baize_agents_list" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{
@@ -118,6 +191,26 @@ func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
 		t.Fatalf("GetAgent() id = %q", fake.agentID)
 	}
 	assertNoPrivateFields(t, detail)
+
+	templates := callTool(t, ctx, clientSession, "baize_command_templates_list", map[string]any{"pageSize": 10, "riskLevel": "low"})
+	if !strings.Contains(templates, "Restart service") {
+		t.Fatalf("unexpected templates result: %s", templates)
+	}
+	plan := callTool(t, ctx, clientSession, "baize_command_plan_create", map[string]any{
+		"templateId":     "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		"targetAgentIds": []string{agentID},
+		"parameters":     map[string]any{"service": "nginx"},
+	})
+	assertStructuredFieldsAbsent(t, plan, "renderedPreview", "parameters", "workDir", "operatorId", "operatorName", "command")
+	if !strings.Contains(plan, "ready") {
+		t.Fatalf("unexpected plan result: %s", plan)
+	}
+	executed := callTool(t, ctx, clientSession, "baize_command_plan_execute", map[string]any{"id": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "confirmRisk": true})
+	if !strings.Contains(executed, "pending") {
+		t.Fatalf("unexpected execute result: %s", executed)
+	}
+	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
+	_ = callTool(t, ctx, clientSession, "baize_exec_task_cancel", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
 }
 
 func assertToolSchemaProperties(t *testing.T, schema any, names []string) {
@@ -219,4 +312,38 @@ func assertNoPrivateFields(t *testing.T, value string) {
 			t.Fatalf("tool result contains %q: %s", forbidden, value)
 		}
 	}
+}
+
+func assertStructuredFieldsAbsent(t *testing.T, value string, names ...string) {
+	t.Helper()
+	var decoded any
+	if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+		t.Fatalf("unmarshal structured content: %v", err)
+	}
+	for _, name := range names {
+		if containsJSONField(decoded, name) {
+			t.Fatalf("structured content contains forbidden field %q: %s", name, value)
+		}
+	}
+}
+
+func containsJSONField(value any, target string) bool {
+	switch item := value.(type) {
+	case map[string]any:
+		if _, ok := item[target]; ok {
+			return true
+		}
+		for _, child := range item {
+			if containsJSONField(child, target) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range item {
+			if containsJSONField(child, target) {
+				return true
+			}
+		}
+	}
+	return false
 }

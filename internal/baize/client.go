@@ -13,9 +13,27 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const maxResponseBytes = 2 << 20
+
+const (
+	maxCommandTemplatePageSize = 50
+	maxCommandTargets          = 50
+	maxParameterEntries        = 64
+	maxParameterKeyLength      = 100
+	maxParameterValueLength    = 4096
+	maxPreviewLength           = 4096
+	maxReasonLength            = 500
+	maxTemplateFieldLength     = 200
+	maxTemplateDescription     = 500
+	maxTemplateParameters      = 32
+	maxTemplateEnumValues      = 50
+	maxTemplateCapabilities    = 32
+	maxPrecheckItems           = 50
+	maxTaskTargets             = 50
+)
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
@@ -24,6 +42,10 @@ var agentSortFields = map[string]struct{}{
 	"last_heartbeat_at": {}, "lastHeartbeatAt": {}, "registered_at": {}, "registeredAt": {},
 	"hostname": {}, "alias": {}, "status": {}, "agent_version": {}, "agentVersion": {},
 	"os_type": {}, "osType": {},
+}
+
+var commandRiskLevels = map[string]struct{}{
+	"read_only": {}, "low": {}, "medium": {}, "high": {}, "critical": {},
 }
 
 type Client struct {
@@ -63,6 +85,263 @@ type AgentListOptions struct {
 	GroupID      string
 	SortBy       string
 	SortOrder    string
+}
+
+// CommandTemplateParameter 描述模板允许接收的参数类型，不携带参数默认值或命令内容。
+type CommandTemplateParameter struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Label       string   `json:"label,omitempty"`
+	Required    bool     `json:"required"`
+	EnumValues  []string `json:"enumValues,omitempty"`
+	Min         *int     `json:"min,omitempty"`
+	Max         *int     `json:"max,omitempty"`
+	MinLength   *int     `json:"minLength,omitempty"`
+	MaxLength   *int     `json:"maxLength,omitempty"`
+	AllowSpaces bool     `json:"allowSpaces,omitempty"`
+	Secret      bool     `json:"secret,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
+// CommandTemplateSummary 是 AI 可发现的命令模板摘要，刻意不返回命令正文和工作目录。
+type CommandTemplateSummary struct {
+	ID                   string                     `json:"id"`
+	Name                 string                     `json:"name"`
+	Description          string                     `json:"description,omitempty"`
+	Category             string                     `json:"category,omitempty"`
+	TimeoutSec           int                        `json:"timeoutSec"`
+	Status               string                     `json:"status"`
+	RiskLevel            string                     `json:"riskLevel"`
+	RenderMode           string                     `json:"renderMode"`
+	Version              int                        `json:"version"`
+	Platform             string                     `json:"platform,omitempty"`
+	Parameters           []CommandTemplateParameter `json:"parameters,omitempty"`
+	ParametersTruncated  bool                       `json:"parametersTruncated,omitempty"`
+	RequiredCapabilities []string                   `json:"requiredCapabilities,omitempty"`
+}
+
+type CommandTemplatePage struct {
+	Items    []CommandTemplateSummary `json:"items"`
+	Total    int                      `json:"total"`
+	Page     int                      `json:"page"`
+	PageSize int                      `json:"pageSize"`
+}
+
+type CommandTemplateListOptions struct {
+	Page      int
+	PageSize  int
+	Search    string
+	Category  string
+	RiskLevel string
+	Platform  string
+}
+
+type PrecheckItem struct {
+	Code     string `json:"code"`
+	Level    string `json:"level"`
+	Message  string `json:"message"`
+	AgentID  string `json:"agentId,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
+}
+
+type CommandTemplateRenderOptions struct {
+	TemplateID  string
+	AgentIDs    []string
+	Parameters  map[string]any
+	DiagnosisID string
+}
+
+type CommandTemplateRenderResult struct {
+	TemplateID        string         `json:"templateId"`
+	TemplateName      string         `json:"templateName"`
+	TemplateVersion   int            `json:"templateVersion"`
+	RenderMode        string         `json:"renderMode"`
+	RiskLevel         string         `json:"riskLevel"`
+	RenderedPreview   string         `json:"renderedPreview,omitempty"`
+	PreviewTruncated  bool           `json:"previewTruncated,omitempty"`
+	CommandHash       string         `json:"commandHash,omitempty"`
+	PrecheckPassed    bool           `json:"precheckPassed"`
+	PrecheckTruncated bool           `json:"precheckTruncated,omitempty"`
+	MissingParameters []string       `json:"missingParameters,omitempty"`
+	BlockedReasons    []PrecheckItem `json:"blockedReasons,omitempty"`
+	Warnings          []PrecheckItem `json:"warnings,omitempty"`
+	DryRun            bool           `json:"dryRun"`
+}
+
+type CommandPlanCreateOptions struct {
+	TemplateID     string
+	Title          string
+	TargetAgentIDs []string
+	Parameters     map[string]any
+	DiagnosisID    string
+}
+
+type PlanSummary struct {
+	ID                string          `json:"id"`
+	TemplateID        string          `json:"templateId"`
+	TemplateName      string          `json:"templateName"`
+	TemplateVersion   int             `json:"templateVersion"`
+	Title             string          `json:"title"`
+	RiskLevel         string          `json:"riskLevel"`
+	RenderMode        string          `json:"renderMode"`
+	CommandHash       string          `json:"commandHash,omitempty"`
+	TimeoutSec        int             `json:"timeoutSec"`
+	TargetAgentIDs    []string        `json:"targetAgentIds"`
+	Precheck          PrecheckSummary `json:"precheck"`
+	PrecheckTruncated bool            `json:"precheckTruncated,omitempty"`
+	Warnings          []PrecheckItem  `json:"warnings,omitempty"`
+	ApprovalRequired  bool            `json:"approvalRequired"`
+	ApprovalReason    string          `json:"approvalReason,omitempty"`
+	Status            string          `json:"status"`
+	DiagnosisID       string          `json:"diagnosisId,omitempty"`
+	CreatedTaskID     string          `json:"createdTaskId,omitempty"`
+	CreatedAt         *time.Time      `json:"createdAt,omitempty"`
+	UpdatedAt         *time.Time      `json:"updatedAt,omitempty"`
+	CancelledAt       *time.Time      `json:"cancelledAt,omitempty"`
+	ExecutedAt        *time.Time      `json:"executedAt,omitempty"`
+}
+
+type PrecheckSummary struct {
+	PrecheckPassed    bool           `json:"precheckPassed"`
+	MissingParameters []string       `json:"missingParameters,omitempty"`
+	BlockedReasons    []PrecheckItem `json:"blockedReasons,omitempty"`
+}
+
+type CommandPlanExecuteOptions struct {
+	AutoDispatch   *bool
+	ConfirmRisk    bool
+	ConfirmMessage string
+	DebugSessionID string
+}
+
+type PlanExecutionSummary struct {
+	Plan PlanSummary `json:"plan"`
+	Task TaskSummary `json:"task"`
+}
+
+type TaskTargetSummary struct {
+	ID         string     `json:"id"`
+	AgentID    string     `json:"agentId"`
+	Status     string     `json:"status"`
+	ExitCode   *int       `json:"exitCode,omitempty"`
+	OutputSize int        `json:"outputSize"`
+	StartedAt  *time.Time `json:"startedAt,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+}
+
+type TaskSummary struct {
+	ID               string              `json:"id"`
+	TaskType         string              `json:"taskType"`
+	Title            string              `json:"title"`
+	TimeoutSec       int                 `json:"timeoutSec"`
+	Status           string              `json:"status"`
+	CreatedAt        *time.Time          `json:"createdAt,omitempty"`
+	StartedAt        *time.Time          `json:"startedAt,omitempty"`
+	FinishedAt       *time.Time          `json:"finishedAt,omitempty"`
+	CancelledAt      *time.Time          `json:"cancelledAt,omitempty"`
+	Targets          []TaskTargetSummary `json:"targets"`
+	TargetsTruncated bool                `json:"targetsTruncated,omitempty"`
+}
+
+type commandTemplateRecord struct {
+	CommandTemplateSummary
+	Parameters           []commandTemplateParameterRecord `json:"parameters"`
+	RequiredCapabilities []string                         `json:"requiredCapabilities"`
+}
+
+type commandTemplateParameterRecord struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Label       string   `json:"label"`
+	Required    bool     `json:"required"`
+	EnumValues  []string `json:"enumValues"`
+	Min         *int     `json:"min"`
+	Max         *int     `json:"max"`
+	MinLength   *int     `json:"minLength"`
+	MaxLength   *int     `json:"maxLength"`
+	AllowSpaces bool     `json:"allowSpaces"`
+	Secret      bool     `json:"secret"`
+	Description string   `json:"description"`
+}
+
+type commandTemplateRenderRecord struct {
+	TemplateID        string         `json:"templateId"`
+	TemplateName      string         `json:"templateName"`
+	TemplateVersion   int            `json:"templateVersion"`
+	RenderMode        string         `json:"renderMode"`
+	RiskLevel         string         `json:"riskLevel"`
+	RenderedPreview   string         `json:"renderedPreview"`
+	CommandHash       string         `json:"commandHash"`
+	PrecheckPassed    bool           `json:"precheckPassed"`
+	MissingParameters []string       `json:"missingParameters"`
+	BlockedReasons    []PrecheckItem `json:"blockedReasons"`
+	Warnings          []PrecheckItem `json:"warnings"`
+	DryRun            bool           `json:"dryRun"`
+}
+
+type commandPlanRecord struct {
+	ID               string          `json:"id"`
+	TemplateID       string          `json:"templateId"`
+	TemplateName     string          `json:"templateName"`
+	TemplateVersion  int             `json:"templateVersion"`
+	Title            string          `json:"title"`
+	RiskLevel        string          `json:"riskLevel"`
+	RenderMode       string          `json:"renderMode"`
+	RenderedPreview  string          `json:"renderedPreview"`
+	CommandHash      string          `json:"commandHash"`
+	TimeoutSec       int             `json:"timeoutSec"`
+	TargetAgentIDs   []string        `json:"targetAgentIds"`
+	Precheck         json.RawMessage `json:"precheck"`
+	Warnings         []PrecheckItem  `json:"warnings"`
+	ApprovalRequired bool            `json:"approvalRequired"`
+	ApprovalReason   string          `json:"approvalReason"`
+	Status           string          `json:"status"`
+	DiagnosisID      string          `json:"diagnosisId"`
+	CreatedTaskID    string          `json:"createdTaskId"`
+	CreatedAt        *time.Time      `json:"createdAt"`
+	UpdatedAt        *time.Time      `json:"updatedAt"`
+	CancelledAt      *time.Time      `json:"cancelledAt"`
+	ExecutedAt       *time.Time      `json:"executedAt"`
+}
+
+type commandPlanExecutionRecord struct {
+	Plan commandPlanRecord `json:"plan"`
+	Task execTaskRecord    `json:"task"`
+}
+
+type execTaskRecord struct {
+	ID          string             `json:"id"`
+	TaskType    string             `json:"taskType"`
+	Title       string             `json:"title"`
+	TimeoutSec  int                `json:"timeoutSec"`
+	Status      string             `json:"status"`
+	CreatedAt   *time.Time         `json:"createdAt"`
+	StartedAt   *time.Time         `json:"startedAt"`
+	FinishedAt  *time.Time         `json:"finishedAt"`
+	CancelledAt *time.Time         `json:"cancelledAt"`
+	Targets     []execTargetRecord `json:"targets"`
+}
+
+type execTargetRecord struct {
+	ID         string     `json:"id"`
+	AgentID    string     `json:"agentId"`
+	Status     string     `json:"status"`
+	ExitCode   *int       `json:"exitCode"`
+	OutputSize int        `json:"outputSize"`
+	StartedAt  *time.Time `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
+}
+
+type commandPlanApprovalRecord struct {
+	ID        string     `json:"id"`
+	PlanID    string     `json:"planId"`
+	RiskLevel string     `json:"riskLevel"`
+	Status    string     `json:"status"`
+	Reason    string     `json:"reason"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+	DecidedAt *time.Time `json:"decidedAt"`
+	CreatedAt *time.Time `json:"createdAt"`
+	UpdatedAt *time.Time `json:"updatedAt"`
 }
 
 type agentRecord struct {
@@ -258,6 +537,386 @@ func (c *Client) GetAgent(ctx context.Context, id string) (AgentSummary, error) 
 	return summarizeAgent(data), nil
 }
 
+func (c *Client) ListCommandTemplates(ctx context.Context, options CommandTemplateListOptions) (CommandTemplatePage, error) {
+	if options.Page < 1 {
+		return CommandTemplatePage{}, newInputError("page must be at least 1")
+	}
+	if options.PageSize < 1 || options.PageSize > maxCommandTemplatePageSize {
+		return CommandTemplatePage{}, newInputError(fmt.Sprintf("page size must be between 1 and %d", maxCommandTemplatePageSize))
+	}
+	query := url.Values{
+		"page":      {fmt.Sprintf("%d", options.Page)},
+		"page_size": {fmt.Sprintf("%d", options.PageSize)},
+		"status":    {"enabled"},
+	}
+	riskLevel := strings.ToLower(strings.TrimSpace(options.RiskLevel))
+	if riskLevel != "" {
+		if _, ok := commandRiskLevels[riskLevel]; !ok {
+			return CommandTemplatePage{}, newInputError("risk level must be read_only, low, medium, high, or critical")
+		}
+		query.Set("risk_level", riskLevel)
+	}
+	for name, value := range map[string]string{
+		"search": options.Search, "category": options.Category, "platform": options.Platform,
+	} {
+		value = strings.TrimSpace(value)
+		if len(value) > 200 {
+			return CommandTemplatePage{}, newInputError(fmt.Sprintf("%s must not exceed 200 characters", name))
+		}
+		if value != "" {
+			query.Set(name, value)
+		}
+	}
+	var data struct {
+		Items    []commandTemplateRecord `json:"items"`
+		Total    int                     `json:"total"`
+		Page     int                     `json:"page"`
+		PageSize int                     `json:"pageSize"`
+	}
+	if err := c.do(ctx, http.MethodGet, []string{"ops", "command-templates"}, query, nil, &data, true); err != nil {
+		return CommandTemplatePage{}, err
+	}
+	items := make([]CommandTemplateSummary, 0, len(data.Items))
+	for _, item := range data.Items {
+		items = append(items, summarizeCommandTemplate(item))
+	}
+	return CommandTemplatePage{Items: items, Total: data.Total, Page: data.Page, PageSize: data.PageSize}, nil
+}
+
+func (c *Client) PreviewCommandTemplate(ctx context.Context, options CommandTemplateRenderOptions) (CommandTemplateRenderResult, error) {
+	templateID, err := validateUUID(options.TemplateID, "template ID")
+	if err != nil {
+		return CommandTemplateRenderResult{}, err
+	}
+	agentIDs, err := validateUUIDList(options.AgentIDs, maxCommandTargets, "agent IDs")
+	if err != nil {
+		return CommandTemplateRenderResult{}, err
+	}
+	parameters, err := validateParameters(options.Parameters)
+	if err != nil {
+		return CommandTemplateRenderResult{}, err
+	}
+	payload := map[string]any{"agentIds": agentIDs, "parameters": parameters, "dryRun": true}
+	if diagnosisID := strings.TrimSpace(options.DiagnosisID); diagnosisID != "" {
+		if _, err := validateUUID(diagnosisID, "diagnosis ID"); err != nil {
+			return CommandTemplateRenderResult{}, err
+		}
+		payload["diagnosisId"] = strings.ToLower(diagnosisID)
+	}
+	var data commandTemplateRenderRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "command-templates", templateID, "render"}, nil, payload, &data, true); err != nil {
+		return CommandTemplateRenderResult{}, err
+	}
+	return summarizeCommandTemplateRender(data), nil
+}
+
+func (c *Client) CreateCommandPlan(ctx context.Context, options CommandPlanCreateOptions) (PlanSummary, error) {
+	templateID, err := validateUUID(options.TemplateID, "template ID")
+	if err != nil {
+		return PlanSummary{}, err
+	}
+	agentIDs, err := validateUUIDList(options.TargetAgentIDs, maxCommandTargets, "target agent IDs")
+	if err != nil {
+		return PlanSummary{}, err
+	}
+	parameters, err := validateParameters(options.Parameters)
+	if err != nil {
+		return PlanSummary{}, err
+	}
+	title := strings.TrimSpace(options.Title)
+	if len(title) > 255 {
+		return PlanSummary{}, newInputError("title must not exceed 255 characters")
+	}
+	payload := map[string]any{
+		"templateId":     templateID,
+		"title":          title,
+		"targetAgentIds": agentIDs,
+		"parameters":     parameters,
+	}
+	if diagnosisID := strings.TrimSpace(options.DiagnosisID); diagnosisID != "" {
+		if _, err := validateUUID(diagnosisID, "diagnosis ID"); err != nil {
+			return PlanSummary{}, err
+		}
+		payload["diagnosisId"] = strings.ToLower(diagnosisID)
+	}
+	var data commandPlanRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "command-plans"}, nil, payload, &data, true); err != nil {
+		return PlanSummary{}, err
+	}
+	return summarizeCommandPlan(data), nil
+}
+
+func (c *Client) GetCommandPlan(ctx context.Context, id string) (PlanSummary, error) {
+	planID, err := validateUUID(id, "command plan ID")
+	if err != nil {
+		return PlanSummary{}, err
+	}
+	var data commandPlanRecord
+	if err := c.do(ctx, http.MethodGet, []string{"ops", "command-plans", planID}, nil, nil, &data, true); err != nil {
+		return PlanSummary{}, err
+	}
+	return summarizeCommandPlan(data), nil
+}
+
+func (c *Client) ExecuteCommandPlan(ctx context.Context, id string, options CommandPlanExecuteOptions) (PlanExecutionSummary, error) {
+	planID, err := validateUUID(id, "command plan ID")
+	if err != nil {
+		return PlanExecutionSummary{}, err
+	}
+	payload := map[string]any{"confirmRisk": options.ConfirmRisk}
+	if options.AutoDispatch != nil {
+		payload["autoDispatch"] = *options.AutoDispatch
+	}
+	if message := strings.TrimSpace(options.ConfirmMessage); message != "" {
+		if len(message) > maxReasonLength {
+			return PlanExecutionSummary{}, newInputError(fmt.Sprintf("confirm message must not exceed %d characters", maxReasonLength))
+		}
+		payload["confirmMessage"] = message
+	}
+	if debugSessionID := strings.TrimSpace(options.DebugSessionID); debugSessionID != "" {
+		if _, err := validateUUID(debugSessionID, "debug session ID"); err != nil {
+			return PlanExecutionSummary{}, err
+		}
+		payload["debugSessionId"] = strings.ToLower(debugSessionID)
+	}
+	var data commandPlanExecutionRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "command-plans", planID, "execute"}, nil, payload, &data, true); err != nil {
+		return PlanExecutionSummary{}, err
+	}
+	return PlanExecutionSummary{Plan: summarizeCommandPlan(data.Plan), Task: summarizeExecTask(data.Task)}, nil
+}
+
+func (c *Client) GetExecTask(ctx context.Context, id string) (TaskSummary, error) {
+	taskID, err := validateUUID(id, "execution task ID")
+	if err != nil {
+		return TaskSummary{}, err
+	}
+	var data execTaskRecord
+	if err := c.do(ctx, http.MethodGet, []string{"ops", "tasks", taskID}, nil, nil, &data, true); err != nil {
+		return TaskSummary{}, err
+	}
+	return summarizeExecTask(data), nil
+}
+
+func (c *Client) CancelExecTask(ctx context.Context, id string) error {
+	taskID, err := validateUUID(id, "execution task ID")
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, []string{"ops", "tasks", taskID, "cancel"}, nil, nil, nil, true)
+}
+
+func validateUUID(value, label string) (string, error) {
+	value = strings.TrimSpace(value)
+	if !agentIDPattern.MatchString(value) {
+		return "", newInputError(label + " must be a UUID")
+	}
+	return strings.ToLower(value), nil
+}
+
+func validateUUIDList(values []string, max int, label string) ([]string, error) {
+	if len(values) < 1 {
+		return nil, newInputError(label + " are required")
+	}
+	if len(values) > max {
+		return nil, newInputError(fmt.Sprintf("%s cannot exceed %d", label, max))
+	}
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		normalized, err := validateUUID(value, strings.TrimSuffix(label, "s")+" ID")
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	if len(result) == 0 {
+		return nil, newInputError(label + " are required")
+	}
+	return result, nil
+}
+
+func validateParameters(values map[string]any) (map[string]any, error) {
+	if len(values) > maxParameterEntries {
+		return nil, newInputError(fmt.Sprintf("parameters cannot contain more than %d entries", maxParameterEntries))
+	}
+	result := make(map[string]any, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key == "" || len(key) > maxParameterKeyLength {
+			return nil, newInputError("parameter names must be non-empty and no longer than 100 characters")
+		}
+		switch normalized := value.(type) {
+		case nil, string, bool, float64, int, int64, json.Number:
+			if text, ok := normalized.(string); ok && len(text) > maxParameterValueLength {
+				return nil, newInputError(fmt.Sprintf("parameter %q exceeds the allowed length", key))
+			}
+			result[key] = normalized
+		default:
+			return nil, newInputError(fmt.Sprintf("parameter %q must be a scalar value", key))
+		}
+	}
+	return result, nil
+}
+
+func summarizeCommandTemplate(item commandTemplateRecord) CommandTemplateSummary {
+	summary := item.CommandTemplateSummary
+	summary.Name = trimPublicText(summary.Name, maxTemplateFieldLength)
+	summary.Description = trimPublicText(summary.Description, maxTemplateDescription)
+	summary.Category = trimPublicText(summary.Category, maxTemplateFieldLength)
+	summary.Platform = trimPublicText(summary.Platform, maxTemplateFieldLength)
+	parameters := make([]CommandTemplateParameter, 0, minInt(len(item.Parameters), maxTemplateParameters))
+	for index, parameter := range item.Parameters {
+		if index >= maxTemplateParameters {
+			summary.ParametersTruncated = true
+			break
+		}
+		enumValues := make([]string, 0, minInt(len(parameter.EnumValues), maxTemplateEnumValues))
+		for enumIndex, enumValue := range parameter.EnumValues {
+			if enumIndex >= maxTemplateEnumValues {
+				summary.ParametersTruncated = true
+				break
+			}
+			enumValues = append(enumValues, trimPublicText(enumValue, maxTemplateFieldLength))
+		}
+		parameters = append(parameters, CommandTemplateParameter{
+			Name: trimPublicText(parameter.Name, maxTemplateFieldLength), Type: trimPublicText(parameter.Type, maxTemplateFieldLength),
+			Label: trimPublicText(parameter.Label, maxTemplateFieldLength), Required: parameter.Required,
+			EnumValues: enumValues, Min: parameter.Min, Max: parameter.Max, MinLength: parameter.MinLength,
+			MaxLength: parameter.MaxLength, AllowSpaces: parameter.AllowSpaces, Secret: parameter.Secret,
+			Description: trimPublicText(parameter.Description, maxTemplateDescription),
+		})
+	}
+	summary.Parameters = parameters
+	summary.RequiredCapabilities = make([]string, 0, minInt(len(item.RequiredCapabilities), maxTemplateCapabilities))
+	for index, capability := range item.RequiredCapabilities {
+		if index >= maxTemplateCapabilities {
+			summary.ParametersTruncated = true
+			break
+		}
+		summary.RequiredCapabilities = append(summary.RequiredCapabilities, trimPublicText(capability, maxTemplateFieldLength))
+	}
+	return summary
+}
+
+func summarizeCommandTemplateRender(item commandTemplateRenderRecord) CommandTemplateRenderResult {
+	preview, previewTruncated := trimPublicTextWithFlag(item.RenderedPreview, maxPreviewLength)
+	blockedReasons, blockedTruncated := trimPrecheckItems(item.BlockedReasons)
+	warnings, warningsTruncated := trimPrecheckItems(item.Warnings)
+	missingParameters, missingTruncated := trimPublicStringList(item.MissingParameters, maxTemplateFieldLength, maxTemplateParameters)
+	return CommandTemplateRenderResult{
+		TemplateID: item.TemplateID, TemplateName: trimPublicText(item.TemplateName, maxTemplateFieldLength), TemplateVersion: item.TemplateVersion,
+		RenderMode: trimPublicText(item.RenderMode, maxTemplateFieldLength), RiskLevel: trimPublicText(item.RiskLevel, maxTemplateFieldLength), RenderedPreview: preview, PreviewTruncated: previewTruncated,
+		CommandHash: trimPublicText(item.CommandHash, maxTemplateFieldLength), PrecheckPassed: item.PrecheckPassed, MissingParameters: missingParameters,
+		PrecheckTruncated: blockedTruncated || warningsTruncated || missingTruncated, BlockedReasons: blockedReasons, Warnings: warnings, DryRun: item.DryRun,
+	}
+}
+
+func summarizeCommandPlan(item commandPlanRecord) PlanSummary {
+	var precheck PrecheckSummary
+	if len(item.Precheck) > 0 {
+		_ = json.Unmarshal(item.Precheck, &precheck)
+	}
+	var missingTruncated, blockedTruncated bool
+	precheck.MissingParameters, missingTruncated = trimPublicStringList(precheck.MissingParameters, maxTemplateFieldLength, maxTemplateParameters)
+	precheck.BlockedReasons, blockedTruncated = trimPrecheckItems(precheck.BlockedReasons)
+	warnings, warningsTruncated := trimPrecheckItems(item.Warnings)
+	targetAgentIDs, targetsTruncated := trimPublicStringList(item.TargetAgentIDs, 0, maxCommandTargets)
+	return PlanSummary{
+		ID: item.ID, TemplateID: item.TemplateID, TemplateName: trimPublicText(item.TemplateName, maxTemplateFieldLength), TemplateVersion: item.TemplateVersion,
+		Title: trimPublicText(item.Title, maxReasonLength), RiskLevel: trimPublicText(item.RiskLevel, maxTemplateFieldLength), RenderMode: trimPublicText(item.RenderMode, maxTemplateFieldLength),
+		CommandHash: trimPublicText(item.CommandHash, maxTemplateFieldLength),
+		TimeoutSec:  item.TimeoutSec, TargetAgentIDs: targetAgentIDs, Precheck: precheck,
+		PrecheckTruncated: missingTruncated || blockedTruncated || warningsTruncated || targetsTruncated, Warnings: warnings, ApprovalRequired: item.ApprovalRequired, ApprovalReason: trimPublicText(item.ApprovalReason, maxReasonLength),
+		Status: trimPublicText(item.Status, maxTemplateFieldLength), DiagnosisID: item.DiagnosisID, CreatedTaskID: item.CreatedTaskID, CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt, CancelledAt: item.CancelledAt, ExecutedAt: item.ExecutedAt,
+	}
+}
+
+func summarizeExecTask(item execTaskRecord) TaskSummary {
+	targets := make([]TaskTargetSummary, 0, minInt(len(item.Targets), maxTaskTargets))
+	targetsTruncated := false
+	for index, target := range item.Targets {
+		if index >= maxTaskTargets {
+			targetsTruncated = true
+			break
+		}
+		targets = append(targets, TaskTargetSummary{ID: target.ID, AgentID: target.AgentID, Status: trimPublicText(target.Status, maxTemplateFieldLength), ExitCode: target.ExitCode, OutputSize: target.OutputSize, StartedAt: target.StartedAt, FinishedAt: target.FinishedAt})
+	}
+	return TaskSummary{ID: item.ID, TaskType: trimPublicText(item.TaskType, maxTemplateFieldLength), Title: trimPublicText(item.Title, maxReasonLength), TimeoutSec: item.TimeoutSec, Status: trimPublicText(item.Status, maxTemplateFieldLength), CreatedAt: item.CreatedAt, StartedAt: item.StartedAt, FinishedAt: item.FinishedAt, CancelledAt: item.CancelledAt, Targets: targets, TargetsTruncated: targetsTruncated}
+}
+
+func trimPrecheckItems(items []PrecheckItem) ([]PrecheckItem, bool) {
+	if len(items) == 0 {
+		return nil, false
+	}
+	result := make([]PrecheckItem, 0, minInt(len(items), maxPrecheckItems))
+	for index, item := range items {
+		if index >= maxPrecheckItems {
+			return result, true
+		}
+		item.Code = trimPublicText(item.Code, 100)
+		item.Level = trimPublicText(item.Level, 32)
+		item.Message = trimPublicText(item.Message, maxReasonLength)
+		item.Hostname = trimPublicText(item.Hostname, 255)
+		result = append(result, item)
+	}
+	return result, false
+}
+
+func trimPublicStringList(values []string, itemMax, listMax int) ([]string, bool) {
+	if len(values) == 0 {
+		return nil, false
+	}
+	result := make([]string, 0, minInt(len(values), listMax))
+	for index, value := range values {
+		if index >= listMax {
+			return result, true
+		}
+		if itemMax > 0 {
+			value = trimPublicText(value, itemMax)
+		}
+		result = append(result, value)
+	}
+	return result, false
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func trimPublicText(value string, max int) string {
+	trimmed, _ := trimPublicTextWithFlag(value, max)
+	return trimmed
+}
+
+func trimPublicTextWithFlag(value string, max int) (string, bool) {
+	value = strings.TrimSpace(value)
+	if max <= 0 {
+		return "", value != ""
+	}
+	if len(value) <= max {
+		return value, false
+	}
+	var builder strings.Builder
+	builder.Grow(max)
+	for _, r := range value {
+		runeSize := utf8.RuneLen(r)
+		if runeSize < 0 || builder.Len()+runeSize > max {
+			break
+		}
+		builder.WriteRune(r)
+	}
+	return builder.String(), true
+}
+
 func (c *Client) do(ctx context.Context, method string, segments []string, query url.Values, payload any, output any, authenticated bool) error {
 	endpoint := c.baseURL.JoinPath(segments...)
 	if len(query) > 0 {
@@ -301,14 +960,14 @@ func (c *Client) do(ctx context.Context, method string, segments []string, query
 	if len(raw) > maxResponseBytes {
 		return errors.New("Baize response exceeded the allowed size")
 	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return &APIError{StatusCode: resp.StatusCode}
+	}
 	var envelope struct {
 		Data json.RawMessage `json:"data"`
 	}
 	if len(raw) > 0 && json.Unmarshal(raw, &envelope) != nil {
 		return errors.New("Baize response was not valid JSON")
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return &APIError{StatusCode: resp.StatusCode}
 	}
 	if output == nil || len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil

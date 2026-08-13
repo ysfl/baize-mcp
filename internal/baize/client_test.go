@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestValidateAPIURL(t *testing.T) {
@@ -137,6 +138,200 @@ func TestClientRejectsInvalidAgentQuery(t *testing.T) {
 	if _, err := client.GetAgent(context.Background(), "../auth/profile"); err == nil {
 		t.Fatal("GetAgent() accepted an invalid ID")
 	}
+}
+
+func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.T) {
+	const (
+		templateID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+		agentID    = "11111111-2222-3333-4444-555555555555"
+		planID     = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+		taskID     = "cccccccc-dddd-eeee-ffff-000000000000"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer session-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		longPreview := strings.Repeat("x", maxPreviewLength+1)
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/v1/ops/command-templates":
+			if got := r.URL.Query().Get("status"); got != "enabled" {
+				t.Fatalf("template status = %q", got)
+			}
+			if got := r.URL.Query().Get("risk_level"); got != "low" {
+				t.Fatalf("template risk level = %q", got)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":"` + templateID + `","name":"Restart service","description":"restart","command":"systemctl restart {{service}}","workDir":"/srv","timeoutSec":30,"status":"enabled","riskLevel":"low","renderMode":"shell","version":2,"platform":"linux","parameters":[{"name":"service","type":"service_name","required":true,"default":"nginx","secret":false}],"requiredCapabilities":["exec.task"]}],"total":1,"page":1,"pageSize":20}}`))
+		case http.MethodPost + " /api/v1/ops/command-templates/" + templateID + "/render":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode render body: %v", err)
+			}
+			if body["dryRun"] != true {
+				t.Fatalf("render dryRun = %#v", body["dryRun"])
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"templateId":"` + templateID + `","templateName":"Restart service","templateVersion":2,"renderMode":"shell","riskLevel":"low","renderedPreview":"` + longPreview + `","commandHash":"hash","precheckPassed":true,"dryRun":true,"parameterSnapshot":{"service":"nginx"}}}`))
+		case http.MethodPost + " /api/v1/ops/command-plans":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode plan body: %v", err)
+			}
+			if body["templateId"] != templateID || body["targetAgentIds"].([]any)[0] != agentID {
+				t.Fatalf("unexpected plan body: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + planID + `","templateId":"` + templateID + `","templateName":"Restart service","templateVersion":2,"title":"Restart","riskLevel":"low","renderMode":"shell","renderedPreview":"systemctl restart nginx","commandHash":"hash","workDir":"/srv","parameters":{"service":"nginx"},"timeoutSec":30,"targetAgentIds":["` + agentID + `"],"precheck":{"precheckPassed":true},"approvalRequired":false,"operatorId":"private-user","operatorName":"Operator","status":"ready"}}`))
+		case http.MethodGet + " /api/v1/ops/command-plans/" + planID:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + planID + `","templateId":"` + templateID + `","templateName":"Restart service","templateVersion":2,"title":"Restart","riskLevel":"low","renderMode":"shell","renderedPreview":"systemctl restart nginx","commandHash":"hash","workDir":"/srv","parameters":{"service":"nginx"},"timeoutSec":30,"targetAgentIds":["` + agentID + `"],"precheck":{"precheckPassed":true},"approvalRequired":false,"operatorId":"private-user","operatorName":"Operator","status":"ready"}}`))
+		case http.MethodPost + " /api/v1/ops/command-plans/" + planID + "/execute":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode execute body: %v", err)
+			}
+			if body["confirmRisk"] != true || body["autoDispatch"] != false || body["confirmMessage"] != "maintenance" {
+				t.Fatalf("unexpected execute body: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"plan":{"id":"` + planID + `","templateId":"` + templateID + `","title":"Restart","riskLevel":"low","renderMode":"shell","renderedPreview":"secret-command","commandHash":"hash","workDir":"/srv","parameters":{"service":"nginx"},"targetAgentIds":["` + agentID + `"],"precheck":{"precheckPassed":true},"approvalRequired":false,"status":"executed","operatorName":"Operator"},"task":{"id":"` + taskID + `","taskType":"command","title":"Restart","command":"secret-command","workDir":"/srv","envVars":{"TOKEN":"secret"},"operatorName":"Operator","status":"pending","targets":[{"id":"dddddddd-eeee-ffff-0000-111111111111","agentId":"` + agentID + `","status":"pending","outputSize":0}]}}}`))
+		case http.MethodGet + " /api/v1/ops/tasks/" + taskID:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + taskID + `","taskType":"command","title":"Restart","command":"secret-command","workDir":"/srv","envVars":{"TOKEN":"secret"},"operatorName":"Operator","status":"pending","targets":[{"id":"dddddddd-eeee-ffff-0000-111111111111","agentId":"` + agentID + `","status":"pending","outputSize":0}]}}`))
+		case http.MethodPost + " /api/v1/ops/tasks/" + taskID + "/cancel":
+			_, _ = w.Write([]byte(`{"code":0,"data":null}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "session-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	page, err := client.ListCommandTemplates(context.Background(), CommandTemplateListOptions{Page: 1, PageSize: 20, RiskLevel: "LOW"})
+	if err != nil || len(page.Items) != 1 || page.Items[0].Parameters[0].Name != "service" {
+		t.Fatalf("ListCommandTemplates() = %#v, error = %v", page, err)
+	}
+	preview, err := client.PreviewCommandTemplate(context.Background(), CommandTemplateRenderOptions{TemplateID: templateID, AgentIDs: []string{agentID}, Parameters: map[string]any{"service": "nginx"}})
+	if err != nil {
+		t.Fatalf("PreviewCommandTemplate() error = %v", err)
+	}
+	if len(preview.RenderedPreview) != maxPreviewLength || !preview.PreviewTruncated {
+		t.Fatalf("preview truncation = %#v", preview)
+	}
+	plan, err := client.CreateCommandPlan(context.Background(), CommandPlanCreateOptions{TemplateID: templateID, TargetAgentIDs: []string{agentID}, Parameters: map[string]any{"service": "nginx"}})
+	if err != nil {
+		t.Fatalf("CreateCommandPlan() error = %v", err)
+	}
+	if plan.ID != planID || plan.CommandHash != "hash" {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if raw, marshalErr := json.Marshal(plan); marshalErr != nil {
+		t.Fatalf("marshal plan: %v", marshalErr)
+	} else if strings.Contains(string(raw), "renderedPreview") || strings.Contains(string(raw), "parameters") || strings.Contains(string(raw), "workDir") || strings.Contains(string(raw), "operatorName") {
+		t.Fatalf("plan exposed private fields: %s", raw)
+	}
+	if _, err := client.GetCommandPlan(context.Background(), planID); err != nil {
+		t.Fatalf("GetCommandPlan() error = %v", err)
+	}
+	execution, err := client.ExecuteCommandPlan(context.Background(), planID, CommandPlanExecuteOptions{AutoDispatch: boolPtr(false), ConfirmRisk: true, ConfirmMessage: "maintenance"})
+	if err != nil || execution.Task.ID != taskID {
+		t.Fatalf("ExecuteCommandPlan() = %#v, error = %v", execution, err)
+	}
+	if raw, marshalErr := json.Marshal(execution); marshalErr != nil {
+		t.Fatalf("marshal execution: %v", marshalErr)
+	} else if strings.Contains(string(raw), "secret-command") || strings.Contains(string(raw), "envVars") || strings.Contains(string(raw), "operatorName") {
+		t.Fatalf("execution exposed private fields: %s", raw)
+	}
+	if _, err := client.GetExecTask(context.Background(), taskID); err != nil {
+		t.Fatalf("GetExecTask() error = %v", err)
+	}
+	if err := client.CancelExecTask(context.Background(), taskID); err != nil {
+		t.Fatalf("CancelExecTask() error = %v", err)
+	}
+}
+
+func TestClientRejectsCommandWorkflowInput(t *testing.T) {
+	client, err := NewClient("https://baize.example.com/api/v1", "session-token", false, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if _, err := client.ListCommandTemplates(context.Background(), CommandTemplateListOptions{Page: 1, PageSize: 20, RiskLevel: "dangerous"}); err == nil {
+		t.Fatal("ListCommandTemplates() accepted an invalid risk level")
+	}
+	if _, err := client.PreviewCommandTemplate(context.Background(), CommandTemplateRenderOptions{TemplateID: "bad", AgentIDs: []string{"bad"}}); err == nil {
+		t.Fatal("PreviewCommandTemplate() accepted invalid IDs")
+	}
+	if _, err := client.CreateCommandPlan(context.Background(), CommandPlanCreateOptions{TemplateID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", TargetAgentIDs: []string{"11111111-2222-3333-4444-555555555555"}, Parameters: map[string]any{"nested": map[string]any{"value": "no"}}}); err == nil {
+		t.Fatal("CreateCommandPlan() accepted a non-scalar parameter")
+	}
+	if _, err := client.ExecuteCommandPlan(context.Background(), "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", CommandPlanExecuteOptions{ConfirmMessage: strings.Repeat("x", maxReasonLength+1)}); err == nil {
+		t.Fatal("ExecuteCommandPlan() accepted an oversized confirmation message")
+	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func TestTrimPublicTextPreservesUTF8Boundaries(t *testing.T) {
+	got, truncated := trimPublicTextWithFlag("中文中文a", 7)
+	if got != "中文" || !truncated || !utf8.ValidString(got) {
+		t.Fatalf("trimPublicTextWithFlag() = %q, %v", got, truncated)
+	}
+}
+
+func TestSummariesBoundTemplateAndPrecheckCollections(t *testing.T) {
+	parameters := make([]commandTemplateParameterRecord, maxTemplateParameters+1)
+	for index := range parameters {
+		parameters[index] = commandTemplateParameterRecord{Name: "parameter", Type: "string", EnumValues: []string{"one", "two"}}
+	}
+	capabilities := make([]string, maxTemplateCapabilities+1)
+	for index := range capabilities {
+		capabilities[index] = "capability"
+	}
+	template := summarizeCommandTemplate(commandTemplateRecord{
+		CommandTemplateSummary: CommandTemplateSummary{Name: strings.Repeat("名", 300), Description: strings.Repeat("描述", 300)},
+		Parameters:             parameters,
+		RequiredCapabilities:   capabilities,
+	})
+	if len(template.Parameters) != maxTemplateParameters || len(template.RequiredCapabilities) != maxTemplateCapabilities || !template.ParametersTruncated {
+		t.Fatalf("template bounds = %#v", template)
+	}
+	if !utf8.ValidString(template.Name) || len(template.Name) > maxTemplateFieldLength || len(template.Description) > maxTemplateDescription {
+		t.Fatalf("template text bounds = %#v", template)
+	}
+
+	precheckItems := make([]PrecheckItem, maxPrecheckItems+1)
+	for index := range precheckItems {
+		precheckItems[index] = PrecheckItem{Code: "code", Level: "warning", Message: "message"}
+	}
+	plan := summarizeCommandPlan(commandPlanRecord{
+		ID:       "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+		Precheck: mustJSONRaw(t, PrecheckSummary{PrecheckPassed: false, BlockedReasons: precheckItems}),
+		Warnings: precheckItems,
+	})
+	if len(plan.Precheck.BlockedReasons) != maxPrecheckItems || len(plan.Warnings) != maxPrecheckItems || !plan.PrecheckTruncated {
+		t.Fatalf("plan bounds = %#v", plan)
+	}
+
+	targets := make([]execTargetRecord, maxTaskTargets+1)
+	for index := range targets {
+		targets[index] = execTargetRecord{ID: "dddddddd-eeee-ffff-0000-111111111111", AgentID: "11111111-2222-3333-4444-555555555555", Status: strings.Repeat("状态", 200)}
+	}
+	task := summarizeExecTask(execTaskRecord{TaskType: strings.Repeat("任务", 200), Title: strings.Repeat("标题", 300), Status: strings.Repeat("状态", 200), Targets: targets})
+	if len(task.Targets) != maxTaskTargets || !task.TargetsTruncated {
+		t.Fatalf("task bounds = %#v", task)
+	}
+	if len(task.TaskType) > maxTemplateFieldLength || len(task.Title) > maxReasonLength || len(task.Status) > maxTemplateFieldLength {
+		t.Fatalf("task text bounds = %#v", task)
+	}
+}
+
+func mustJSONRaw(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal test JSON: %v", err)
+	}
+	return raw
 }
 
 func equalAgentSummary(a, b AgentSummary) bool {
