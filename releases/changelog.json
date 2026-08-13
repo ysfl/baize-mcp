@@ -1,7 +1,35 @@
 {
   "schemaVersion": "baize.mcp.changelog.v1",
-  "generatedAt": "2026-08-13T14:32:45Z",
+  "generatedAt": "2026-08-14T00:00:00Z",
   "entries": [
+    {
+      "version": "0.1.2",
+      "tag": "v0.1.2",
+      "channel": "stable",
+      "releasedAt": "2026-08-14",
+      "minimumBaizeVersion": "0.2.1",
+      "transport": "stdio",
+      "title": {
+        "zh": "增加命令工作流工具",
+        "en": "Added command workflow tools"
+      },
+      "summary": {
+        "zh": "AI 客户端可以发现模板、预览计划、跟踪远程任务，并在白泽权限和确认流程允许时请求执行或取消。",
+        "en": "AI clients can discover templates, preview plans, track remote tasks, and request execution or cancellation when Baize permissions and confirmation flows allow it."
+      },
+      "items": {
+        "zh": [
+          "增加命令模板列表和不落地预览。",
+          "增加命令计划创建、查询和执行；创建计划不会直接派发。",
+          "增加远程任务查询和取消，结果不包含命令正文、环境变量或任务输出。"
+        ],
+        "en": [
+          "Adds command-template listing and non-dispatching previews.",
+          "Adds command-plan creation, inspection, and execution; creating a plan does not dispatch it.",
+          "Adds remote-task inspection and cancellation without returning command bodies, environment values, or task output."
+        ]
+      }
+    },
     {
       "version": "0.1.1",
       "tag": "v0.1.1",

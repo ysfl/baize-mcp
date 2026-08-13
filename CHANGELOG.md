@@ -6,6 +6,28 @@ This file records user-visible changes in published Baize MCP versions.
 
 ## Unreleased
 
+后续公开变更将在新的版本条目中记录。
+
+Future public changes will be recorded in a new version entry.
+
+## 0.1.2 - 2026-08-14
+
+### 中文
+
+- 增加命令模板列表和模板预览工具，帮助 AI 在创建任务前确认可用模板、参数约束、目标和预检结果。
+- 增加命令计划创建、查询和执行工具；创建计划不会直接向服务器节点派发命令。
+- 增加远程任务查询和取消工具，支持查看整体及目标进度，并请求停止等待中或运行中的任务。
+- 写工具只映射白泽已发布的命令工作流，权限、风险确认、审批、审计和任务状态继续由白泽后端处理。
+- 计划和任务结果采用有限字段、数量和文本长度边界，不返回命令正文、工作目录、环境变量、操作者身份、任务输出或凭据。
+
+### English
+
+- Added command-template listing and preview tools so an AI can confirm available templates, parameter constraints, targets, and prechecks before creating a task.
+- Added command-plan creation, inspection, and execution tools; creating a plan does not dispatch a command to a server agent.
+- Added remote-task inspection and cancellation tools for overall and per-agent progress, including cancellation requests for pending or running tasks.
+- Write tools only map to published Baize command workflows; Baize continues to handle permissions, risk confirmation, approval, audit, and task state.
+- Plan and task results use bounded fields, item counts, and text lengths, and exclude command bodies, working directories, environment values, operator identity, task output, and credentials.
+
 ## 0.1.1 - 2026-08-13
 
 ### 中文

@@ -11,8 +11,11 @@ Use [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) as the source 
 - Check whether a saved Baize session is valid.
 - List server agents with pagination and filters for name, alias, system, region, architecture, Agent version, status, or groups, with selectable stable sort fields and direction.
 - Read the basic status of one server agent.
+- List available command templates and parameter constraints, and preview a template for selected agents without creating a plan.
+- Create and inspect command plans; creating a plan does not dispatch a command to an agent.
+- Execute command plans, inspect task progress, and request task cancellation.
 
-Results contain only the agent ID, display name, status, operating system, architecture, Agent version, and last heartbeat. Connection addresses, IP addresses, fingerprints, capability lists, and credentials are excluded.
+Template, plan, and task results contain only bounded fields needed for the current decision. They exclude command bodies, working directories, environment values, operator identity, task output, and credentials. Preview and list results are bounded by item count, text length, and complete UTF-8 boundaries.
 
 ## Install
 
@@ -62,6 +65,13 @@ After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/sk
 | `baize_connection_status` | Verify that the current profile has a valid session |
 | `baize_agents_list` | Read a paginated list of agents with privacy-protected status information |
 | `baize_agent_get` | Read the basic status of one agent |
+| `baize_command_templates_list` | List command template summaries and parameter constraints allowed for the signed-in account |
+| `baize_command_template_preview` | Preview template rendering and prechecks for selected agents without creating a plan |
+| `baize_command_plan_create` | Create a Baize-validated command plan without dispatching it |
+| `baize_command_plan_get` | Read command plan status, risk, and precheck information |
+| `baize_command_plan_execute` | Request plan execution; Baize handles permissions, confirmation, approval, and audit |
+| `baize_exec_task_get` | Read overall and per-agent remote task progress |
+| `baize_exec_task_cancel` | Request cancellation of a pending or running remote task |
 
 ## Versions and Updates
 
@@ -87,14 +97,15 @@ It updates the public access entry, installs the current stable MCP, and refresh
 - Login passwords are not written to configuration files.
 - Login sessions are protected by the operating system's credential store and are never returned by MCP tools.
 - MCP access remains limited to resources already allowed for the signed-in Baize user.
-- All currently available tools are read-only and non-destructive.
+- Write tools only map to published Baize command workflows. Baize remains responsible for permissions, risk confirmation, approval, audit, and task state; MCP does not add a second control layer.
+- Creating a plan does not dispatch a command, and execution or cancellation can still be rejected by Baize permissions, risk checks, or task state.
 - Release archives verify executable integrity at startup and refuse to run when the integrity file is missing or does not match.
 
 Follow [SECURITY.md](SECURITY.md) to report security issues privately. Do not post credentials, server addresses, or runtime logs in public issues.
 
-## Future Direction
+## Next Direction
 
-This version is read-only. Future releases will map published Baize write capabilities into explicit task tools. They will use the signed-in account's existing permission scope and Baize's existing confirmation, audit, and rollback flows instead of adding a second control layer in MCP. Formal release notes will define the actual scope.
+Future releases will continue to cover stable published capabilities for observation, diagnostics, alerts, assets, scheduled tasks, and Runbooks, using pagination, chunking, and on-demand views to control context size. New write tools will keep explicit task semantics, account permission boundaries, and traceable results; formal release notes define the actual scope.
 
 ## License
 
