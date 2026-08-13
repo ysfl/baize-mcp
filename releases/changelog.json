@@ -1,7 +1,35 @@
 {
   "schemaVersion": "baize.mcp.changelog.v1",
-  "generatedAt": "2026-08-12T08:25:46Z",
+  "generatedAt": "2026-08-13T14:32:45Z",
   "entries": [
+    {
+      "version": "0.1.1",
+      "tag": "v0.1.1",
+      "channel": "stable",
+      "releasedAt": "2026-08-13",
+      "minimumBaizeVersion": "0.2.1",
+      "transport": "stdio",
+      "title": {
+        "zh": "增强节点定位能力",
+        "en": "Improved agent discovery"
+      },
+      "summary": {
+        "zh": "AI 客户端可以按更多已验证条件筛选和排序白泽服务器节点，同时保持现有工具、登录方式与隐私保护结果兼容。",
+        "en": "AI clients can filter and sort Baize server agents with more verified conditions while keeping existing tools, sign-in, and privacy-protected outputs compatible."
+      },
+      "items": {
+        "zh": [
+          "支持按别名、系统、地区、架构、Agent 版本和分组筛选节点。",
+          "支持按创建时间、更新时间、最后心跳、注册时间、名称、状态、版本或系统排序。",
+          "保持三个只读工具名称、登录方式和结果字段边界兼容。"
+        ],
+        "en": [
+          "Filters agents by alias, system, region, architecture, Agent version, and group.",
+          "Sorts by creation time, update time, last heartbeat, registration time, name, status, version, or operating system.",
+          "Keeps the three read-only tool names, sign-in flow, and result field boundary compatible."
+        ]
+      }
+    },
     {
       "version": "0.1.0",
       "tag": "v0.1.0",

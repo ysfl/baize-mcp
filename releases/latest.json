@@ -1,44 +1,44 @@
 {
   "schemaVersion": "baize.mcp.release.v1",
-  "version": "0.1.0",
-  "tag": "v0.1.0",
+  "version": "0.1.1",
+  "tag": "v0.1.1",
   "channel": "stable",
-  "releasedAt": "2026-08-12",
+  "releasedAt": "2026-08-13",
   "minimumBaizeVersion": "0.2.1",
   "transport": "stdio",
   "assets": [
     {
-      "name": "baize-mcp_0.1.0_linux_amd64.tar.gz",
+      "name": "baize-mcp_0.1.1_linux_amd64.tar.gz",
       "os": "linux",
       "arch": "amd64",
       "format": "tar.gz"
     },
     {
-      "name": "baize-mcp_0.1.0_linux_arm64.tar.gz",
+      "name": "baize-mcp_0.1.1_linux_arm64.tar.gz",
       "os": "linux",
       "arch": "arm64",
       "format": "tar.gz"
     },
     {
-      "name": "baize-mcp_0.1.0_darwin_amd64.tar.gz",
+      "name": "baize-mcp_0.1.1_darwin_amd64.tar.gz",
       "os": "darwin",
       "arch": "amd64",
       "format": "tar.gz"
     },
     {
-      "name": "baize-mcp_0.1.0_darwin_arm64.tar.gz",
+      "name": "baize-mcp_0.1.1_darwin_arm64.tar.gz",
       "os": "darwin",
       "arch": "arm64",
       "format": "tar.gz"
     },
     {
-      "name": "baize-mcp_0.1.0_windows_amd64.zip",
+      "name": "baize-mcp_0.1.1_windows_amd64.zip",
       "os": "windows",
       "arch": "amd64",
       "format": "zip"
     },
     {
-      "name": "baize-mcp_0.1.0_windows_arm64.zip",
+      "name": "baize-mcp_0.1.1_windows_arm64.zip",
       "os": "windows",
       "arch": "arm64",
       "format": "zip"
