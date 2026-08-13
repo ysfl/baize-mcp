@@ -54,8 +54,16 @@ func TestClientReadsPrivacyReducedAgents(t *testing.T) {
 			if got := r.URL.Query().Get("search"); got != "web" {
 				t.Fatalf("search = %q", got)
 			}
-			if got := r.URL.Query().Get("status"); got != "online" {
-				t.Fatalf("status = %q", got)
+			wantQuery := map[string]string{
+				"search": "web", "alias": "frontend", "system": "linux", "region": "shanghai",
+				"agent_version": "0.2", "arch": "arm64", "status": "online",
+				"group_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "tag_key": "role", "tag_value": "api",
+				"sort_by": "lastHeartbeatAt", "sort_order": "desc",
+			}
+			for name, want := range wantQuery {
+				if got := r.URL.Query().Get(name); got != want {
+					t.Fatalf("%s = %q, want %q", name, got, want)
+				}
 			}
 			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":"` + agentID + `","hostname":"web-01.internal","alias":"Web 01","status":"online","osType":"linux","osVersion":"Ubuntu 24.04","arch":"amd64","agentVersion":"0.2.1","lastHeartbeatAt":"2026-08-06T01:02:03Z","ipInternal":"10.0.0.1","ipExternal":"203.0.113.10","fingerprint":"sensitive-fingerprint","capabilities":["sensitive-capability"],"tokenId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}],"total":1,"page":2,"pageSize":5}}`))
 		case "/api/v1/agents/" + agentID:
@@ -71,7 +79,10 @@ func TestClientReadsPrivacyReducedAgents(t *testing.T) {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 	page, err := client.ListAgents(context.Background(), AgentListOptions{
-		Page: 2, PageSize: 5, Search: " web ", Status: " online ",
+		Page: 2, PageSize: 5, Search: " web ", Alias: " frontend ", System: " linux ", Region: " shanghai ",
+		AgentVersion: " 0.2 ", Architecture: " arm64 ", Status: " online ",
+		GroupID: " AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE ", TagKey: " role ", TagValue: " api ",
+		SortBy: " lastHeartbeatAt ", SortOrder: " DESC ",
 	})
 	if err != nil {
 		t.Fatalf("ListAgents() error = %v", err)
@@ -113,6 +124,18 @@ func TestClientRejectsInvalidAgentQuery(t *testing.T) {
 	}
 	if _, err := client.ListAgents(context.Background(), AgentListOptions{Page: 1, PageSize: 101}); err == nil {
 		t.Fatal("ListAgents() accepted an oversized page")
+	}
+	if _, err := client.ListAgents(context.Background(), AgentListOptions{Page: 1, PageSize: 20, GroupID: "not-a-uuid"}); err == nil {
+		t.Fatal("ListAgents() accepted an invalid group ID")
+	}
+	if _, err := client.ListAgents(context.Background(), AgentListOptions{Page: 1, PageSize: 20, SortOrder: "sideways"}); err == nil {
+		t.Fatal("ListAgents() accepted an invalid sort order")
+	}
+	if _, err := client.ListAgents(context.Background(), AgentListOptions{Page: 1, PageSize: 20, SortBy: "private_field"}); err == nil {
+		t.Fatal("ListAgents() accepted an unsupported sort field")
+	}
+	if _, err := client.ListAgents(context.Background(), AgentListOptions{Page: 1, PageSize: 20, TagValue: strings.Repeat("x", 257)}); err == nil {
+		t.Fatal("ListAgents() accepted an oversized tag value")
 	}
 	if _, err := client.GetAgent(context.Background(), "../auth/profile"); err == nil {
 		t.Fatal("GetAgent() accepted an invalid ID")

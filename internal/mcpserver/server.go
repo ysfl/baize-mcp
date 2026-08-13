@@ -26,10 +26,20 @@ type connectionStatusOutput struct {
 }
 
 type agentsListInput struct {
-	Page     int    `json:"page,omitempty" jsonschema:"page number, starting at 1"`
-	PageSize int    `json:"pageSize,omitempty" jsonschema:"number of agents per page, from 1 to 100"`
-	Search   string `json:"search,omitempty" jsonschema:"optional name, system, architecture, or version search"`
-	Status   string `json:"status,omitempty" jsonschema:"optional Baize agent status filter"`
+	Page         int    `json:"page,omitempty" jsonschema:"page number, starting at 1"`
+	PageSize     int    `json:"pageSize,omitempty" jsonschema:"number of agents per page, from 1 to 100"`
+	Search       string `json:"search,omitempty" jsonschema:"optional hostname, alias, IP, system, architecture, or version search"`
+	Alias        string `json:"alias,omitempty" jsonschema:"optional agent alias filter"`
+	System       string `json:"system,omitempty" jsonschema:"optional operating system name or version filter"`
+	Region       string `json:"region,omitempty" jsonschema:"optional country or city filter"`
+	AgentVersion string `json:"agentVersion,omitempty" jsonschema:"optional Baize agent version filter"`
+	Architecture string `json:"architecture,omitempty" jsonschema:"optional system architecture filter"`
+	Status       string `json:"status,omitempty" jsonschema:"optional Baize agent status filter"`
+	GroupID      string `json:"groupId,omitempty" jsonschema:"optional Baize group UUID"`
+	TagKey       string `json:"tagKey,omitempty" jsonschema:"optional agent tag key filter"`
+	TagValue     string `json:"tagValue,omitempty" jsonschema:"optional agent tag value filter"`
+	SortBy       string `json:"sortBy,omitempty" jsonschema:"optional sort field: created_at, createdAt, updated_at, updatedAt, last_heartbeat_at, lastHeartbeatAt, registered_at, registeredAt, hostname, alias, status, agent_version, agentVersion, os_type, or osType"`
+	SortOrder    string `json:"sortOrder,omitempty" jsonschema:"optional sort direction: asc or desc"`
 }
 
 type agentGetInput struct {
@@ -65,10 +75,20 @@ func New(client Client) *mcp.Server {
 			input.PageSize = 20
 		}
 		page, err := client.ListAgents(ctx, baize.AgentListOptions{
-			Page:     input.Page,
-			PageSize: input.PageSize,
-			Search:   strings.TrimSpace(input.Search),
-			Status:   strings.TrimSpace(input.Status),
+			Page:         input.Page,
+			PageSize:     input.PageSize,
+			Search:       strings.TrimSpace(input.Search),
+			Alias:        strings.TrimSpace(input.Alias),
+			System:       strings.TrimSpace(input.System),
+			Region:       strings.TrimSpace(input.Region),
+			AgentVersion: strings.TrimSpace(input.AgentVersion),
+			Architecture: strings.TrimSpace(input.Architecture),
+			Status:       strings.TrimSpace(input.Status),
+			GroupID:      strings.TrimSpace(input.GroupID),
+			TagKey:       strings.TrimSpace(input.TagKey),
+			TagValue:     strings.TrimSpace(input.TagValue),
+			SortBy:       strings.TrimSpace(input.SortBy),
+			SortOrder:    strings.TrimSpace(input.SortOrder),
 		})
 		return nil, page, toolError(err)
 	})

@@ -44,23 +44,58 @@ extract_zip_file() {
   unzip -p "$1" "$2"
 }
 
-jq -e '.schemaVersion == "baize.mcp.changelog.v1" and (.entries | type == "array")' "${CHANGELOG_JSON}" >/dev/null
+compare_versions() {
+  awk -v left="$1" -v right="$2" 'BEGIN {
+    split(left, l, "."); split(right, r, ".");
+    for (i = 1; i <= 3; i++) {
+      if ((l[i] + 0) < (r[i] + 0)) { print -1; exit }
+      if ((l[i] + 0) > (r[i] + 0)) { print 1; exit }
+    }
+    print 0
+  }'
+}
 
-if [[ -f "${ROOT_DIR}/releases/latest.json" ]]; then
-  jq -e --arg version "${VERSION}" '
+verify_latest_metadata() {
+  local latest_path="$1"
+  jq -e '
     .schemaVersion == "baize.mcp.release.v1" and
-    .version == $version and
-    .tag == ("v" + $version) and
+    (.version | type == "string") and
+    (.tag | type == "string") and
     .channel == "stable" and
     .minimumBaizeVersion == "0.2.1" and
     .transport == "stdio" and
     (.assets | length == 6) and
     ([.assets[] | (.os + "/" + .arch)] | unique | length == 6)
-  ' "${ROOT_DIR}/releases/latest.json" >/dev/null
-  jq -e --arg version "${VERSION}" '
-    any(.entries[]; .version == $version and .tag == ("v" + $version) and .channel == "stable")
-  ' "${CHANGELOG_JSON}" >/dev/null
-  grep -q "^## ${VERSION} - " "${ROOT_DIR}/CHANGELOG.md"
+  ' "${latest_path}" >/dev/null
+}
+
+jq -e '.schemaVersion == "baize.mcp.changelog.v1" and (.entries | type == "array")' "${CHANGELOG_JSON}" >/dev/null
+
+if [[ -f "${ROOT_DIR}/releases/latest.json" ]]; then
+  verify_latest_metadata "${ROOT_DIR}/releases/latest.json"
+  latest_version="$(jq -r '.version' "${ROOT_DIR}/releases/latest.json")"
+  latest_tag="$(jq -r '.tag' "${ROOT_DIR}/releases/latest.json")"
+  [[ "${latest_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "latest.json has an invalid version" >&2; exit 1; }
+  [[ "${latest_tag}" == "v${latest_version}" ]] || { echo "latest.json tag does not match its version" >&2; exit 1; }
+  relation="$(compare_versions "${latest_version}" "${VERSION}")"
+  if [[ "${relation}" == "1" ]]; then
+    echo "latest.json is newer than VERSION" >&2
+    exit 1
+  elif [[ "${relation}" == "0" ]]; then
+    jq -e --arg version "${VERSION}" '
+      any(.entries[]; .version == $version and .tag == ("v" + $version) and .channel == "stable")
+    ' "${CHANGELOG_JSON}" >/dev/null
+    grep -q "^## ${VERSION} - " "${ROOT_DIR}/CHANGELOG.md"
+  else
+    grep -q '^## Unreleased$' "${ROOT_DIR}/CHANGELOG.md"
+    if jq -e --arg version "${VERSION}" '
+      any(.entries[]; .version == $version and .tag == ("v" + $version) and .channel == "stable")
+    ' "${CHANGELOG_JSON}" >/dev/null; then
+      echo "candidate VERSION is already recorded as stable" >&2
+      exit 1
+    fi
+    [[ ! -f "${ROOT_DIR}/releases/v${VERSION}.md" ]] || { echo "candidate release notes already exist" >&2; exit 1; }
+  fi
 fi
 
 grep -q 'baize_connection_status' "${ROOT_DIR}/README.md"
@@ -73,6 +108,12 @@ if [[ -d "${ROOT_DIR}/dist" ]]; then
     .tag == ("v" + $version) and
     (.assets | length == 6)
   ' "${ROOT_DIR}/dist/release-assets.json" >/dev/null
+  if [[ -f "${ROOT_DIR}/dist/latest.json" ]]; then
+    verify_latest_metadata "${ROOT_DIR}/dist/latest.json"
+    jq -e --arg version "${VERSION}" '
+      .version == $version and .tag == ("v" + $version)
+    ' "${ROOT_DIR}/dist/latest.json" >/dev/null
+  fi
   (
     cd "${ROOT_DIR}/dist"
     if command -v sha256sum >/dev/null 2>&1; then

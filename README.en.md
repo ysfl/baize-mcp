@@ -2,21 +2,23 @@
 
 [中文](README.md) | [Baize](https://github.com/ysfl/baize)
 
-Baize MCP is the open-source MCP connector for Baize. It lets MCP-compatible AI clients connect to a Baize instance owned and operated by the user.
+Baize MCP is the open-source MCP connector for Baize. It lets MCP-compatible AI clients connect to a Baize instance owned and operated by the user. It does not install the Baize server, console, or Agent; product deployment and upgrades remain in [Baize](https://github.com/ysfl/baize).
 
-Use [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) as the source for runnable versions. Visit [Baize](https://github.com/ysfl/baize) for deployment and upgrade guidance.
+Use [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) as the source for runnable versions. To give an AI client both MCP tools and Baize usage guidance, use the [AI access installer](https://github.com/ysfl/baize/blob/main/scripts/install-ai-access.sh) and install the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/skills/baize-ai/SKILL.md).
 
 ## Available Capabilities
 
 - Check whether a saved Baize session is valid.
-- List server agents with pagination and filters for name, system, architecture, version, or status.
+- List server agents with pagination and filters for name, alias, system, region, architecture, Agent version, status, groups, or tags, with selectable stable sort fields and direction.
 - Read the basic status of one server agent.
 
 Results contain only the agent ID, display name, status, operating system, architecture, Agent version, and last heartbeat. Connection addresses, IP addresses, fingerprints, capability lists, and credentials are excluded.
 
 ## Install
 
-Download and fully extract the archive for your operating system and architecture from [GitHub Releases](https://github.com/ysfl/baize-mcp/releases). The program automatically checks the executable SHA-256 using the integrity file shipped beside it; keep the archive contents together. This startup check detects corrupted or incomplete installations, while `SHA256SUMS` remains available as an optional release-file verification entry point. You can also build from source with Go 1.25.12 or later:
+The recommended path is the [Baize AI access entry](https://github.com/ysfl/baize/blob/main/README.en.md#connect-an-ai-client), which installs MCP and the Skill and registers MCP when the selected client supports it. This entry is independent from the Baize product installer and does not deploy or modify a Baize instance.
+
+For a manual MCP installation, download and fully extract the archive for your operating system and architecture from [GitHub Releases](https://github.com/ysfl/baize-mcp/releases). The program automatically checks the executable SHA-256 using the integrity file shipped beside it; keep the archive contents together. This startup check detects corrupted or incomplete installations, while `SHA256SUMS` remains available as an optional release-file verification entry point. You can also build from source with Go 1.25.12 or later:
 
 ```bash
 go build -trimpath -o baize-mcp ./cmd/baize-mcp
@@ -51,6 +53,8 @@ Add the following configuration to a client that supports MCP over stdio. Replac
 
 The client configuration contains no Baize address, username, password, or session credential. To connect to more than one instance, use a different `--profile` name for both the sign-in and `serve` commands.
 
+After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/skills/baize-ai/SKILL.md), an AI can prefer these MCP tools when the user mentions Baize, server nodes, or status queries, and ask the user to choose when multiple nodes match. See the [AI Access and Remote Task Guide](https://github.com/ysfl/baize/blob/main/docs/en/ai-remote-tasks.md) for the complete workflow.
+
 ## MCP Tools
 
 | Tool | Purpose |
@@ -80,7 +84,7 @@ Follow [SECURITY.md](SECURITY.md) to report security issues privately. Do not po
 
 ## Future Direction
 
-This version is read-only. Future releases may add controlled write operations after permission scope, explicit confirmation, risk prompts, auditability, and rollback constraints are in place; formal release notes will define the actual scope.
+This version is read-only. Future releases will map published Baize write capabilities into explicit task tools. They will use the signed-in account's existing permission scope and Baize's existing confirmation, audit, and rollback flows instead of adding a second control layer in MCP. Formal release notes will define the actual scope.
 
 ## License
 

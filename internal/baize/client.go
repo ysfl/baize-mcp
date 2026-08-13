@@ -19,6 +19,13 @@ const maxResponseBytes = 2 << 20
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+var agentSortFields = map[string]struct{}{
+	"created_at": {}, "createdAt": {}, "updated_at": {}, "updatedAt": {},
+	"last_heartbeat_at": {}, "lastHeartbeatAt": {}, "registered_at": {}, "registeredAt": {},
+	"hostname": {}, "alias": {}, "status": {}, "agent_version": {}, "agentVersion": {},
+	"os_type": {}, "osType": {},
+}
+
 type Client struct {
 	baseURL   *url.URL
 	http      *http.Client
@@ -44,10 +51,20 @@ type AgentPage struct {
 }
 
 type AgentListOptions struct {
-	Page     int
-	PageSize int
-	Search   string
-	Status   string
+	Page         int
+	PageSize     int
+	Search       string
+	Alias        string
+	System       string
+	Region       string
+	AgentVersion string
+	Architecture string
+	Status       string
+	GroupID      string
+	TagKey       string
+	TagValue     string
+	SortBy       string
+	SortOrder    string
 }
 
 type agentRecord struct {
@@ -167,23 +184,55 @@ func (c *Client) ListAgents(ctx context.Context, options AgentListOptions) (Agen
 	if options.PageSize < 1 || options.PageSize > 100 {
 		return AgentPage{}, newInputError("page size must be between 1 and 100")
 	}
-	search := strings.TrimSpace(options.Search)
-	if len(search) > 200 {
-		return AgentPage{}, newInputError("search must not exceed 200 characters")
-	}
-	status := strings.TrimSpace(options.Status)
-	if len(status) > 64 {
-		return AgentPage{}, newInputError("status must not exceed 64 characters")
+	filters := []struct {
+		name  string
+		value string
+		limit int
+		query string
+	}{
+		{name: "search", value: options.Search, limit: 200, query: "search"},
+		{name: "alias", value: options.Alias, limit: 200, query: "alias"},
+		{name: "system", value: options.System, limit: 200, query: "system"},
+		{name: "region", value: options.Region, limit: 200, query: "region"},
+		{name: "agent version", value: options.AgentVersion, limit: 64, query: "agent_version"},
+		{name: "architecture", value: options.Architecture, limit: 64, query: "arch"},
+		{name: "status", value: options.Status, limit: 64, query: "status"},
+		{name: "tag key", value: options.TagKey, limit: 128, query: "tag_key"},
+		{name: "tag value", value: options.TagValue, limit: 256, query: "tag_value"},
+		{name: "sort field", value: options.SortBy, limit: 64, query: "sort_by"},
 	}
 	query := url.Values{
 		"page":      {fmt.Sprintf("%d", options.Page)},
 		"page_size": {fmt.Sprintf("%d", options.PageSize)},
 	}
-	if search != "" {
-		query.Set("search", search)
+	for _, filter := range filters {
+		value := strings.TrimSpace(filter.value)
+		if len(value) > filter.limit {
+			return AgentPage{}, newInputError(fmt.Sprintf("%s must not exceed %d characters", filter.name, filter.limit))
+		}
+		if value != "" {
+			query.Set(filter.query, value)
+		}
 	}
-	if status != "" {
-		query.Set("status", status)
+	groupID := strings.TrimSpace(options.GroupID)
+	if groupID != "" {
+		if !agentIDPattern.MatchString(groupID) {
+			return AgentPage{}, newInputError("group ID must be a UUID")
+		}
+		query.Set("group_id", strings.ToLower(groupID))
+	}
+	sortOrder := strings.ToLower(strings.TrimSpace(options.SortOrder))
+	sortBy := strings.TrimSpace(options.SortBy)
+	if sortBy != "" {
+		if _, ok := agentSortFields[sortBy]; !ok {
+			return AgentPage{}, newInputError("sort field is not supported")
+		}
+	}
+	if sortOrder != "" {
+		if sortOrder != "asc" && sortOrder != "desc" {
+			return AgentPage{}, newInputError("sort order must be asc or desc")
+		}
+		query.Set("sort_order", sortOrder)
 	}
 	var data struct {
 		Items    []agentRecord `json:"items"`

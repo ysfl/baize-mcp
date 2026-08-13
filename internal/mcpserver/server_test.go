@@ -75,6 +75,12 @@ func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
 		if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint {
 			t.Fatalf("tool %q is not marked non-destructive", tool.Name)
 		}
+		if tool.Name == "baize_agents_list" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{
+				"page", "pageSize", "search", "alias", "system", "region", "agentVersion",
+				"architecture", "status", "groupId", "tagKey", "tagValue", "sortBy", "sortOrder",
+			})
+		}
 	}
 	for name, found := range wantNames {
 		if !found {
@@ -90,8 +96,18 @@ func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
 		t.Fatalf("unexpected connection result: %s", status)
 	}
 
-	list := callTool(t, ctx, clientSession, "baize_agents_list", map[string]any{"search": " web ", "status": " online "})
-	if fake.listOptions.Page != 1 || fake.listOptions.PageSize != 20 || fake.listOptions.Search != "web" || fake.listOptions.Status != "online" {
+	const groupID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	list := callTool(t, ctx, clientSession, "baize_agents_list", map[string]any{
+		"search": " web ", "alias": " frontend ", "system": " linux ", "region": " shanghai ",
+		"agentVersion": " 0.2 ", "architecture": " arm64 ", "status": " online ", "groupId": " " + groupID + " ",
+		"tagKey": " role ", "tagValue": " api ", "sortBy": " lastHeartbeatAt ", "sortOrder": " desc ",
+	})
+	wantOptions := baize.AgentListOptions{
+		Page: 1, PageSize: 20, Search: "web", Alias: "frontend", System: "linux", Region: "shanghai",
+		AgentVersion: "0.2", Architecture: "arm64", Status: "online", GroupID: groupID,
+		TagKey: "role", TagValue: "api", SortBy: "lastHeartbeatAt", SortOrder: "desc",
+	}
+	if fake.listOptions != wantOptions {
 		t.Fatalf("ListAgents() options = %#v", fake.listOptions)
 	}
 	assertNoPrivateFields(t, list)
@@ -102,6 +118,25 @@ func TestServerExposesOnlyReadOnlyTools(t *testing.T) {
 		t.Fatalf("GetAgent() id = %q", fake.agentID)
 	}
 	assertNoPrivateFields(t, detail)
+}
+
+func assertToolSchemaProperties(t *testing.T, schema any, names []string) {
+	t.Helper()
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("Marshal input schema: %v", err)
+	}
+	var value struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &value); err != nil {
+		t.Fatalf("Unmarshal input schema: %v", err)
+	}
+	for _, name := range names {
+		if _, ok := value.Properties[name]; !ok {
+			t.Fatalf("input schema is missing property %q: %s", name, raw)
+		}
+	}
 }
 
 func TestServerSanitizesToolErrors(t *testing.T) {

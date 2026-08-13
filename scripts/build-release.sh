@@ -106,8 +106,26 @@ jq -n \
   '{schemaVersion: "baize.mcp.release-assets.v1", version: $version, tag: $tag, generatedAt: $generated_at, assets: $assets}' \
   > "${DIST_DIR}/release-assets.json"
 
-if [[ -f "${ROOT_DIR}/releases/latest.json" ]]; then
+if [[ -f "${ROOT_DIR}/releases/latest.json" ]] &&
+  [[ "$(jq -r '.version // empty' "${ROOT_DIR}/releases/latest.json")" == "${VERSION}" ]]; then
   cp "${ROOT_DIR}/releases/latest.json" "${DIST_DIR}/latest.json"
+else
+  # 候选构建只在临时产物中生成待验收清单，不改写上一稳定版的公开清单。
+  jq -n \
+    --arg version "${VERSION}" \
+    --arg tag "v${VERSION}" \
+    --arg released_at "$(date -u '+%Y-%m-%d')" \
+    --argjson assets "${assets_json}" \
+    '{
+      schemaVersion: "baize.mcp.release.v1",
+      version: $version,
+      tag: $tag,
+      channel: "stable",
+      releasedAt: $released_at,
+      minimumBaizeVersion: "0.2.1",
+      transport: "stdio",
+      assets: [$assets[] | {name, os, arch, format}]
+    }' > "${DIST_DIR}/latest.json"
 fi
 
 (
