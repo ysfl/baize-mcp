@@ -21,7 +21,7 @@ Baize MCP 是白泽的开源 MCP 接入组件，用于让支持 MCP 的 AI 客�
 
 推荐从 [Baize AI 接入入口](https://github.com/ysfl/baize#ai-客户端接入) 安装 MCP、Skill，并按客户端能力自动注册 MCP。这个入口与白泽产品安装器相互独立，不会部署或修改白泽实例。
 
-如需手动安装 MCP，从 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 下载与你的系统和架构匹配的压缩包并完整解压。程序启动时会自动校验压缩包随附的可执行文件 SHA-256；请保留压缩包内的校验文件。这个自检用于发现文件损坏或安装不完整，`SHA256SUMS` 仍作为可选的发布文件校验入口。也可以使用 Go 1.25.12 或更高版本从源码构建：
+如需手动安装 MCP，从 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 下载与你的系统和架构匹配的压缩包并完整解压。程序启动时会自动校验压缩包随附的可执行文件 SHA-256；请保留压缩包内的校验文件。这个自检用于发现文件损坏或安装不完整，`SHA256SUMS` 仍作为可选的发布文件校验入口。也可以使用 Go 1.25.13 或更高版本从源码构建：
 
 ```bash
 go build -trimpath -o baize-mcp ./cmd/baize-mcp

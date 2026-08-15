@@ -8,12 +8,17 @@ This file records user-visible changes in published Baize MCP versions.
 
 ### 候选 / Candidate
 
+### 中文
+
 - 增加命令计划审批申请、查询和通过/驳回决策工具；决策仍由白泽后端权限、自审批策略、快照和过期规则最终判断。
 - 增加分页继续标记、写生命周期验收和 64 KiB 工具目录/结构化结果门禁。
+- 源码构建最低版本更新为 Go 1.25.13，以使用当前标准库安全修复。
 
-Further public changes will be recorded in a new version entry after the candidate is confirmed.
+### English
 
-Future public changes will be recorded in a new version entry.
+- Adds command-plan approval request, listing, and approve/reject decision tools; Baize still makes the final permission, self-approval, snapshot, and expiry decisions.
+- Adds pagination continuation markers, write-lifecycle coverage, and 64 KiB limits for the tool catalog and structured results.
+- Raises the minimum Go version for source builds to Go 1.25.13 so builds use the current standard-library security fixes.
 
 ## 0.1.2 - 2026-08-14
 
