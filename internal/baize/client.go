@@ -790,7 +790,7 @@ func (c *Client) GetCommandPlan(ctx context.Context, id string) (PlanSummary, er
 	return summarizeCommandPlan(data), nil
 }
 
-// RequestCommandPlanApproval creates a server-side approval request for a ready plan.
+// RequestCommandPlanApproval 为 ready 计划创建服务端审批申请。
 func (c *Client) RequestCommandPlanApproval(ctx context.Context, options CommandPlanApprovalCreateOptions) (CommandPlanApproval, error) {
 	planID, err := validateUUID(options.PlanID, "command plan ID")
 	if err != nil {
@@ -817,7 +817,7 @@ func (c *Client) RequestCommandPlanApproval(ctx context.Context, options Command
 	return summarizeCommandPlanApproval(data), nil
 }
 
-// ListCommandPlanApprovals lists approval records within the signed-in account's server-side scope.
+// ListCommandPlanApprovals 分页查询当前登录账号服务端授权范围内的审批单。
 func (c *Client) ListCommandPlanApprovals(ctx context.Context, options CommandPlanApprovalListOptions) (CommandPlanApprovalPage, error) {
 	if options.Page < 1 {
 		return CommandPlanApprovalPage{}, newInputError("page must be at least 1")
@@ -898,7 +898,7 @@ func (c *Client) ListCommandPlanApprovals(ctx context.Context, options CommandPl
 	return CommandPlanApprovalPage{Items: items, Total: data.Total, Page: page, PageSize: pageSize, HasMore: hasMore, NextPage: nextPage}, nil
 }
 
-// GetCommandPlanApproval returns a single redacted approval record.
+// GetCommandPlanApproval 返回一条经过脱敏的审批单。
 func (c *Client) GetCommandPlanApproval(ctx context.Context, id string) (CommandPlanApproval, error) {
 	approvalID, err := validateUUID(id, "command plan approval ID")
 	if err != nil {
@@ -911,8 +911,8 @@ func (c *Client) GetCommandPlanApproval(ctx context.Context, id string) (Command
 	return summarizeCommandPlanApproval(data), nil
 }
 
-// DecideCommandPlanApproval submits an approval decision to Baize.
-// The backend decides whether the signed-in account may approve this plan.
+// DecideCommandPlanApproval 向白泽提交审批决策。
+// 当前登录账号是否可以审批由后端最终判断。
 func (c *Client) DecideCommandPlanApproval(ctx context.Context, id string, options CommandPlanApprovalDecisionOptions) (CommandPlanApproval, error) {
 	approvalID, err := validateUUID(id, "command plan approval ID")
 	if err != nil {

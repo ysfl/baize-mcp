@@ -321,9 +321,8 @@ func New(client Client) *mcp.Server {
 	return server
 }
 
-// toolOutput enforces a stable upper bound on structured MCP results so a proxy or
-// an unexpectedly large server response cannot duplicate an unbounded payload in
-// the AI conversation. Individual client summaries apply field-level limits first.
+// toolOutput 为结构化 MCP 结果设置稳定上限，避免代理或异常服务端响应把无界内容
+// 重复写入 AI 对话；客户端摘要会先执行字段级限制。
 func toolOutput[T any](value T, err error, action string) (*mcp.CallToolResult, T, error) {
 	if err != nil {
 		return nil, value, toolErrorWithAction(err, action)
