@@ -73,6 +73,8 @@ baize-mcp login \
 | `baize_exec_task_get` | 查询远程任务整体及目标进度 |
 | `baize_exec_task_cancel` | 请求取消等待中或运行中的远程任务 |
 
+候选版本还增加命令计划审批工具：`baize_command_plan_approval_create`、`baize_command_plan_approvals_list`、`baize_command_plan_approval_get` 和 `baize_command_plan_approval_decide`。这些工具只有在对应版本发布后才进入稳定支持；审批通过仍需当前账号具备后端权限，且不会自动执行计划。
+
 ## 版本与更新
 
 - 结构化更新记录：[releases/changelog.json](releases/changelog.json)

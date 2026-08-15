@@ -6,7 +6,12 @@ This file records user-visible changes in published Baize MCP versions.
 
 ## Unreleased
 
-后续公开变更将在新的版本条目中记录。
+### 候选 / Candidate
+
+- 增加命令计划审批申请、查询和通过/驳回决策工具；决策仍由白泽后端权限、自审批策略、快照和过期规则最终判断。
+- 增加分页继续标记、写生命周期验收和 64 KiB 工具目录/结构化结果门禁。
+
+Further public changes will be recorded in a new version entry after the candidate is confirmed.
 
 Future public changes will be recorded in a new version entry.
 

@@ -73,6 +73,8 @@ After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/sk
 | `baize_exec_task_get` | Read overall and per-agent remote task progress |
 | `baize_exec_task_cancel` | Request cancellation of a pending or running remote task |
 
+The candidate also adds command-plan approval tools: `baize_command_plan_approval_create`, `baize_command_plan_approvals_list`, `baize_command_plan_approval_get`, and `baize_command_plan_approval_decide`. They become stable only after the corresponding release is published; approval still requires the backend permission of the signed-in account and never executes a plan automatically.
+
 ## Versions and Updates
 
 - Structured update history: [releases/changelog.json](releases/changelog.json)
