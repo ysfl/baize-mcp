@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,55 @@ type fakeClient struct {
 	listErr             error
 	getErr              error
 	writeErr            error
+}
+
+type lifecycleClient struct {
+	*fakeClient
+	events []string
+}
+
+func (f *lifecycleClient) record(event string) {
+	f.events = append(f.events, event)
+}
+
+func (f *lifecycleClient) ListCommandTemplates(ctx context.Context, options baize.CommandTemplateListOptions) (baize.CommandTemplatePage, error) {
+	f.record("templates.list")
+	return f.fakeClient.ListCommandTemplates(ctx, options)
+}
+
+func (f *lifecycleClient) PreviewCommandTemplate(ctx context.Context, options baize.CommandTemplateRenderOptions) (baize.CommandTemplateRenderResult, error) {
+	f.record("template.preview")
+	return f.fakeClient.PreviewCommandTemplate(ctx, options)
+}
+
+func (f *lifecycleClient) CreateCommandPlan(ctx context.Context, options baize.CommandPlanCreateOptions) (baize.PlanSummary, error) {
+	f.record("plan.create")
+	return f.fakeClient.CreateCommandPlan(ctx, options)
+}
+
+func (f *lifecycleClient) RequestCommandPlanApproval(ctx context.Context, options baize.CommandPlanApprovalCreateOptions) (baize.CommandPlanApproval, error) {
+	f.record("approval.create")
+	return f.fakeClient.RequestCommandPlanApproval(ctx, options)
+}
+
+func (f *lifecycleClient) DecideCommandPlanApproval(ctx context.Context, id string, options baize.CommandPlanApprovalDecisionOptions) (baize.CommandPlanApproval, error) {
+	f.record("approval.decide")
+	return f.fakeClient.DecideCommandPlanApproval(ctx, id, options)
+}
+
+func (f *lifecycleClient) ExecuteCommandPlan(ctx context.Context, id string, options baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error) {
+	f.record("plan.execute")
+	return f.fakeClient.ExecuteCommandPlan(ctx, id, options)
+}
+
+func (f *lifecycleClient) GetExecTask(ctx context.Context, id string) (baize.TaskSummary, error) {
+	f.record("task.get")
+	return f.fakeClient.GetExecTask(ctx, id)
+}
+
+func (f *lifecycleClient) CancelExecTask(ctx context.Context, id string) error {
+	f.record("task.cancel")
+	return f.fakeClient.CancelExecTask(ctx, id)
 }
 
 func (f *fakeClient) CheckSession(context.Context) error {
@@ -275,6 +325,60 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_cancel", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
 }
 
+func TestServerWriteLifecycleRequiresPreviewApprovalBeforeExecution(t *testing.T) {
+	ctx := context.Background()
+	backend := &lifecycleClient{fakeClient: &fakeClient{}}
+	clientSession := connectClient(t, ctx, backend)
+	const (
+		templateID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+		agentID    = "11111111-2222-3333-4444-555555555555"
+		planID     = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+		approvalID = "eeeeeeee-ffff-0000-1111-222222222222"
+		taskID     = "cccccccc-dddd-eeee-ffff-000000000000"
+	)
+
+	_ = callTool(t, ctx, clientSession, "baize_command_templates_list", map[string]any{})
+	_ = callTool(t, ctx, clientSession, "baize_command_template_preview", map[string]any{
+		"templateId": templateID, "agentIds": []string{agentID}, "parameters": map[string]any{"service": "nginx"},
+	})
+	_ = callTool(t, ctx, clientSession, "baize_command_plan_create", map[string]any{
+		"templateId": templateID, "targetAgentIds": []string{agentID}, "parameters": map[string]any{"service": "nginx"},
+	})
+	_ = callTool(t, ctx, clientSession, "baize_command_plan_approval_create", map[string]any{
+		"planId": planID, "reason": "approved maintenance window",
+	})
+	_ = callTool(t, ctx, clientSession, "baize_command_plan_approval_decide", map[string]any{
+		"id": approvalID, "approved": true, "decisionMessage": "approved",
+	})
+	_ = callTool(t, ctx, clientSession, "baize_command_plan_execute", map[string]any{"id": planID, "confirmRisk": true})
+	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": taskID})
+	_ = callTool(t, ctx, clientSession, "baize_exec_task_cancel", map[string]any{"id": taskID})
+
+	want := []string{"templates.list", "template.preview", "plan.create", "approval.create", "approval.decide", "plan.execute", "task.get", "task.cancel"}
+	if !reflect.DeepEqual(backend.events, want) {
+		t.Fatalf("write lifecycle events = %#v, want %#v", backend.events, want)
+	}
+}
+
+func TestServerToolListStaysWithinContextBudget(t *testing.T) {
+	ctx := context.Background()
+	clientSession := connectClient(t, ctx, &fakeClient{})
+	var toolsList []any
+	for tool, err := range clientSession.Tools(ctx, nil) {
+		if err != nil {
+			t.Fatalf("Tools() error = %v", err)
+		}
+		toolsList = append(toolsList, tool)
+	}
+	raw, err := json.Marshal(toolsList)
+	if err != nil {
+		t.Fatalf("Marshal tools list: %v", err)
+	}
+	if len(raw) > 64<<10 {
+		t.Fatalf("tools/list is %d bytes, exceeds 64 KiB budget", len(raw))
+	}
+}
+
 func assertToolSchemaProperties(t *testing.T, schema any, names []string) {
 	t.Helper()
 	raw, err := json.Marshal(schema)
@@ -314,6 +418,18 @@ func TestServerSanitizesToolErrors(t *testing.T) {
 	listErr := callToolError(t, ctx, clientSession, "baize_agents_list", map[string]any{})
 	if !strings.Contains(listErr, "denied this read request") {
 		t.Fatalf("unexpected sanitized API error: %s", listErr)
+	}
+}
+
+func TestToolOutputEnforcesContextBudget(t *testing.T) {
+	_, _, err := toolOutput(strings.Repeat("x", maxToolOutputBytes+1), nil, "read")
+	if err == nil || !strings.Contains(err.Error(), "context size") {
+		t.Fatalf("toolOutput() error = %v", err)
+	}
+
+	_, _, err = toolOutput(struct{}{}, &baize.APIError{StatusCode: 403}, "write")
+	if err == nil || !strings.Contains(err.Error(), "denied this write request") {
+		t.Fatalf("toolOutput() API error = %v", err)
 	}
 }
 

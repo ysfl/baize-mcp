@@ -35,6 +35,7 @@ const (
 	maxTaskTargets             = 50
 	maxApprovalPageSize        = 50
 	maxApprovalItems           = 50
+	maxAgentPageItems          = 100
 )
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -72,10 +73,13 @@ type AgentSummary struct {
 }
 
 type AgentPage struct {
-	Items    []AgentSummary `json:"items"`
-	Total    int            `json:"total"`
-	Page     int            `json:"page"`
-	PageSize int            `json:"pageSize"`
+	Items          []AgentSummary `json:"items"`
+	Total          int            `json:"total"`
+	Page           int            `json:"page"`
+	PageSize       int            `json:"pageSize"`
+	HasMore        bool           `json:"hasMore"`
+	NextPage       int            `json:"nextPage,omitempty"`
+	ItemsTruncated bool           `json:"itemsTruncated,omitempty"`
 }
 
 type AgentListOptions struct {
@@ -127,10 +131,13 @@ type CommandTemplateSummary struct {
 }
 
 type CommandTemplatePage struct {
-	Items    []CommandTemplateSummary `json:"items"`
-	Total    int                      `json:"total"`
-	Page     int                      `json:"page"`
-	PageSize int                      `json:"pageSize"`
+	Items          []CommandTemplateSummary `json:"items"`
+	Total          int                      `json:"total"`
+	Page           int                      `json:"page"`
+	PageSize       int                      `json:"pageSize"`
+	HasMore        bool                     `json:"hasMore"`
+	NextPage       int                      `json:"nextPage,omitempty"`
+	ItemsTruncated bool                     `json:"itemsTruncated,omitempty"`
 }
 
 type CommandTemplateListOptions struct {
@@ -607,11 +614,29 @@ func (c *Client) ListAgents(ctx context.Context, options AgentListOptions) (Agen
 	if err := c.do(ctx, http.MethodGet, []string{"agents"}, query, nil, &data, true); err != nil {
 		return AgentPage{}, err
 	}
-	items := make([]AgentSummary, 0, len(data.Items))
-	for _, item := range data.Items {
+	items := make([]AgentSummary, 0, minInt(len(data.Items), maxAgentPageItems))
+	itemsTruncated := false
+	for index, item := range data.Items {
+		if index >= maxAgentPageItems {
+			itemsTruncated = true
+			break
+		}
 		items = append(items, summarizeAgent(item))
 	}
-	return AgentPage{Items: items, Total: data.Total, Page: data.Page, PageSize: data.PageSize}, nil
+	page := data.Page
+	if page < 1 {
+		page = options.Page
+	}
+	pageSize := data.PageSize
+	if pageSize < 1 {
+		pageSize = options.PageSize
+	}
+	hasMore := itemsTruncated || page*pageSize < data.Total
+	nextPage := 0
+	if hasMore {
+		nextPage = page + 1
+	}
+	return AgentPage{Items: items, Total: data.Total, Page: page, PageSize: pageSize, HasMore: hasMore, NextPage: nextPage, ItemsTruncated: itemsTruncated}, nil
 }
 
 func (c *Client) GetAgent(ctx context.Context, id string) (AgentSummary, error) {
@@ -665,11 +690,29 @@ func (c *Client) ListCommandTemplates(ctx context.Context, options CommandTempla
 	if err := c.do(ctx, http.MethodGet, []string{"ops", "command-templates"}, query, nil, &data, true); err != nil {
 		return CommandTemplatePage{}, err
 	}
-	items := make([]CommandTemplateSummary, 0, len(data.Items))
-	for _, item := range data.Items {
+	items := make([]CommandTemplateSummary, 0, minInt(len(data.Items), maxCommandTemplatePageSize))
+	itemsTruncated := false
+	for index, item := range data.Items {
+		if index >= maxCommandTemplatePageSize {
+			itemsTruncated = true
+			break
+		}
 		items = append(items, summarizeCommandTemplate(item))
 	}
-	return CommandTemplatePage{Items: items, Total: data.Total, Page: data.Page, PageSize: data.PageSize}, nil
+	page := data.Page
+	if page < 1 {
+		page = options.Page
+	}
+	pageSize := data.PageSize
+	if pageSize < 1 {
+		pageSize = options.PageSize
+	}
+	hasMore := itemsTruncated || page*pageSize < data.Total
+	nextPage := 0
+	if hasMore {
+		nextPage = page + 1
+	}
+	return CommandTemplatePage{Items: items, Total: data.Total, Page: page, PageSize: pageSize, HasMore: hasMore, NextPage: nextPage, ItemsTruncated: itemsTruncated}, nil
 }
 
 func (c *Client) PreviewCommandTemplate(ctx context.Context, options CommandTemplateRenderOptions) (CommandTemplateRenderResult, error) {

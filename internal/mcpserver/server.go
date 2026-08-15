@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"github.com/ysfl/baize-mcp/internal/baize"
 	"github.com/ysfl/baize-mcp/internal/buildinfo"
 )
+
+const maxToolOutputBytes = 64 << 10
 
 type Client interface {
 	CheckSession(context.Context) error
@@ -140,9 +143,9 @@ func New(client Client) *mcp.Server {
 		"Checks whether the saved local session can access Baize. Connection addresses and credentials are not returned.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, connectionStatusOutput, error) {
 		if err := client.CheckSession(ctx); err != nil {
-			return nil, connectionStatusOutput{}, toolError(err)
+			return toolOutput(connectionStatusOutput{}, err, "read")
 		}
-		return nil, connectionStatusOutput{Connected: true}, nil
+		return toolOutput(connectionStatusOutput{Connected: true}, nil, "read")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -170,7 +173,7 @@ func New(client Client) *mcp.Server {
 			SortBy:       strings.TrimSpace(input.SortBy),
 			SortOrder:    strings.TrimSpace(input.SortOrder),
 		})
-		return nil, page, toolError(err)
+		return toolOutput(page, err, "read")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -179,7 +182,7 @@ func New(client Client) *mcp.Server {
 		"Returns privacy-protected status information for one agent. Addresses, fingerprints, capabilities, and credentials are excluded.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input agentGetInput) (*mcp.CallToolResult, baize.AgentSummary, error) {
 		item, err := client.GetAgent(ctx, input.ID)
-		return nil, item, toolError(err)
+		return toolOutput(item, err, "read")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -197,7 +200,7 @@ func New(client Client) *mcp.Server {
 			Page: input.Page, PageSize: input.PageSize, Search: strings.TrimSpace(input.Search),
 			Category: strings.TrimSpace(input.Category), RiskLevel: strings.TrimSpace(input.RiskLevel), Platform: strings.TrimSpace(input.Platform),
 		})
-		return nil, page, toolError(err)
+		return toolOutput(page, err, "read")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -208,7 +211,7 @@ func New(client Client) *mcp.Server {
 		result, err := client.PreviewCommandTemplate(ctx, baize.CommandTemplateRenderOptions{
 			TemplateID: strings.TrimSpace(input.TemplateID), AgentIDs: input.AgentIDs, Parameters: input.Parameters, DiagnosisID: strings.TrimSpace(input.DiagnosisID),
 		})
-		return nil, result, toolError(err)
+		return toolOutput(result, err, "read")
 	})
 
 	mcp.AddTool(server, writeTool(
@@ -221,7 +224,7 @@ func New(client Client) *mcp.Server {
 			TemplateID: strings.TrimSpace(input.TemplateID), Title: strings.TrimSpace(input.Title), TargetAgentIDs: input.TargetAgentIDs,
 			Parameters: input.Parameters, DiagnosisID: strings.TrimSpace(input.DiagnosisID),
 		})
-		return nil, plan, writeToolError(err)
+		return toolOutput(plan, err, "write")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -230,7 +233,7 @@ func New(client Client) *mcp.Server {
 		"Returns the bounded status, risk, target and precheck information for one command plan. The rendered command itself is not returned.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanGetInput) (*mcp.CallToolResult, baize.PlanSummary, error) {
 		plan, err := client.GetCommandPlan(ctx, input.ID)
-		return nil, plan, toolError(err)
+		return toolOutput(plan, err, "read")
 	})
 
 	mcp.AddTool(server, writeTool(
@@ -242,7 +245,7 @@ func New(client Client) *mcp.Server {
 		approval, err := client.RequestCommandPlanApproval(ctx, baize.CommandPlanApprovalCreateOptions{
 			PlanID: strings.TrimSpace(input.PlanID), Reason: strings.TrimSpace(input.Reason), ExpiresAt: input.ExpiresAt,
 		})
-		return nil, approval, writeToolError(err)
+		return toolOutput(approval, err, "write")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -260,7 +263,7 @@ func New(client Client) *mcp.Server {
 			Page: input.Page, PageSize: input.PageSize, PlanID: strings.TrimSpace(input.PlanID), Status: strings.TrimSpace(input.Status),
 			RiskLevel: strings.TrimSpace(input.RiskLevel), RequesterID: strings.TrimSpace(input.RequesterID), ApproverID: strings.TrimSpace(input.ApproverID), Search: strings.TrimSpace(input.Search),
 		})
-		return nil, page, toolError(err)
+		return toolOutput(page, err, "read")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -269,7 +272,7 @@ func New(client Client) *mcp.Server {
 		"Returns one approval record and a bounded, redacted plan snapshot for review. It excludes command text, parameters, policy details, operator identity, and credentials.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanApprovalGetInput) (*mcp.CallToolResult, baize.CommandPlanApproval, error) {
 		approval, err := client.GetCommandPlanApproval(ctx, input.ID)
-		return nil, approval, toolError(err)
+		return toolOutput(approval, err, "read")
 	})
 
 	mcp.AddTool(server, writeTool(
@@ -281,7 +284,7 @@ func New(client Client) *mcp.Server {
 		approval, err := client.DecideCommandPlanApproval(ctx, input.ID, baize.CommandPlanApprovalDecisionOptions{
 			Approved: input.Approved, DecisionMessage: strings.TrimSpace(input.DecisionMessage),
 		})
-		return nil, approval, writeToolError(err)
+		return toolOutput(approval, err, "write")
 	})
 
 	mcp.AddTool(server, writeTool(
@@ -293,7 +296,7 @@ func New(client Client) *mcp.Server {
 		result, err := client.ExecuteCommandPlan(ctx, input.ID, baize.CommandPlanExecuteOptions{
 			AutoDispatch: input.AutoDispatch, ConfirmRisk: input.ConfirmRisk, ConfirmMessage: strings.TrimSpace(input.ConfirmMessage), DebugSessionID: strings.TrimSpace(input.DebugSessionID),
 		})
-		return nil, result, writeToolError(err)
+		return toolOutput(result, err, "write")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -302,7 +305,7 @@ func New(client Client) *mcp.Server {
 		"Returns bounded task and per-agent progress for one remote execution task. Command text, environment values, output, and operator identity are not returned.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskGetInput) (*mcp.CallToolResult, baize.TaskSummary, error) {
 		task, err := client.GetExecTask(ctx, input.ID)
-		return nil, task, toolError(err)
+		return toolOutput(task, err, "read")
 	})
 
 	mcp.AddTool(server, writeTool(
@@ -312,10 +315,27 @@ func New(client Client) *mcp.Server {
 		true,
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskCancelInput) (*mcp.CallToolResult, emptyInput, error) {
 		err := client.CancelExecTask(ctx, input.ID)
-		return nil, emptyInput{}, writeToolError(err)
+		return toolOutput(emptyInput{}, err, "write")
 	})
 
 	return server
+}
+
+// toolOutput enforces a stable upper bound on structured MCP results so a proxy or
+// an unexpectedly large server response cannot duplicate an unbounded payload in
+// the AI conversation. Individual client summaries apply field-level limits first.
+func toolOutput[T any](value T, err error, action string) (*mcp.CallToolResult, T, error) {
+	if err != nil {
+		return nil, value, toolErrorWithAction(err, action)
+	}
+	raw, marshalErr := json.Marshal(value)
+	if marshalErr != nil {
+		return nil, value, errors.New("the Baize result could not be encoded")
+	}
+	if len(raw) > maxToolOutputBytes {
+		return nil, value, errors.New("the Baize result exceeded the allowed context size")
+	}
+	return nil, value, nil
 }
 
 func toolError(err error) error {
