@@ -33,6 +33,8 @@ const (
 	maxTemplateCapabilities    = 32
 	maxPrecheckItems           = 50
 	maxTaskTargets             = 50
+	maxApprovalPageSize        = 50
+	maxApprovalItems           = 50
 )
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -46,6 +48,10 @@ var agentSortFields = map[string]struct{}{
 
 var commandRiskLevels = map[string]struct{}{
 	"read_only": {}, "low": {}, "medium": {}, "high": {}, "critical": {},
+}
+
+var commandApprovalStatuses = map[string]struct{}{
+	"pending": {}, "approved": {}, "rejected": {}, "expired": {},
 }
 
 type Client struct {
@@ -214,9 +220,77 @@ type CommandPlanExecuteOptions struct {
 	DebugSessionID string
 }
 
+// CommandPlanApprovalCreateOptions 是命令计划审批申请参数。
+// 审批申请只记录后端审批单，不会执行命令计划。
+type CommandPlanApprovalCreateOptions struct {
+	PlanID    string
+	Reason    string
+	ExpiresAt *time.Time
+}
+
+// CommandPlanApprovalListOptions 是审批单列表的筛选参数。
+type CommandPlanApprovalListOptions struct {
+	Page        int
+	PageSize    int
+	PlanID      string
+	Status      string
+	RiskLevel   string
+	RequesterID string
+	ApproverID  string
+	Search      string
+}
+
+// CommandPlanApprovalDecisionOptions 是审批人的决策参数。
+// Approved=true 只表示向后端提交通过意见，是否有权限由白泽后端最终判断。
+type CommandPlanApprovalDecisionOptions struct {
+	Approved        bool
+	DecisionMessage string
+}
+
 type PlanExecutionSummary struct {
 	Plan PlanSummary `json:"plan"`
 	Task TaskSummary `json:"task"`
+}
+
+// ApprovalPlanSnapshot 是审批时可供 AI 复核的脱敏计划快照。
+// 参数快照、策略快照、命令正文和工作目录不会进入该结构。
+type ApprovalPlanSnapshot struct {
+	TemplateID      string          `json:"templateId,omitempty"`
+	TemplateName    string          `json:"templateName,omitempty"`
+	TemplateVersion int             `json:"templateVersion,omitempty"`
+	Title           string          `json:"title,omitempty"`
+	RiskLevel       string          `json:"riskLevel,omitempty"`
+	CommandHash     string          `json:"commandHash,omitempty"`
+	TimeoutSec      int             `json:"timeoutSec,omitempty"`
+	TargetAgentIDs  []string        `json:"targetAgentIds,omitempty"`
+	Precheck        PrecheckSummary `json:"precheck,omitempty"`
+	Warnings        []PrecheckItem  `json:"warnings,omitempty"`
+	Truncated       bool            `json:"truncated,omitempty"`
+}
+
+// CommandPlanApproval 是经过字段白名单处理的审批单摘要。
+type CommandPlanApproval struct {
+	ID                string                `json:"id"`
+	PlanID            string                `json:"planId"`
+	RiskLevel         string                `json:"riskLevel"`
+	Status            string                `json:"status"`
+	Reason            string                `json:"reason,omitempty"`
+	DecisionMessage   string                `json:"decisionMessage,omitempty"`
+	ExpiresAt         *time.Time            `json:"expiresAt,omitempty"`
+	DecidedAt         *time.Time            `json:"decidedAt,omitempty"`
+	CreatedAt         *time.Time            `json:"createdAt,omitempty"`
+	UpdatedAt         *time.Time            `json:"updatedAt,omitempty"`
+	PlanSnapshot      *ApprovalPlanSnapshot `json:"planSnapshot,omitempty"`
+	SnapshotTruncated bool                  `json:"snapshotTruncated,omitempty"`
+}
+
+type CommandPlanApprovalPage struct {
+	Items    []CommandPlanApproval `json:"items"`
+	Total    int                   `json:"total"`
+	Page     int                   `json:"page"`
+	PageSize int                   `json:"pageSize"`
+	HasMore  bool                  `json:"hasMore"`
+	NextPage int                   `json:"nextPage,omitempty"`
 }
 
 type TaskTargetSummary struct {
@@ -333,15 +407,30 @@ type execTargetRecord struct {
 }
 
 type commandPlanApprovalRecord struct {
-	ID        string     `json:"id"`
-	PlanID    string     `json:"planId"`
-	RiskLevel string     `json:"riskLevel"`
-	Status    string     `json:"status"`
-	Reason    string     `json:"reason"`
-	ExpiresAt *time.Time `json:"expiresAt"`
-	DecidedAt *time.Time `json:"decidedAt"`
-	CreatedAt *time.Time `json:"createdAt"`
-	UpdatedAt *time.Time `json:"updatedAt"`
+	ID              string          `json:"id"`
+	PlanID          string          `json:"planId"`
+	RiskLevel       string          `json:"riskLevel"`
+	Status          string          `json:"status"`
+	Reason          string          `json:"reason"`
+	DecisionMessage string          `json:"decisionMessage"`
+	ExpiresAt       *time.Time      `json:"expiresAt"`
+	DecidedAt       *time.Time      `json:"decidedAt"`
+	CreatedAt       *time.Time      `json:"createdAt"`
+	UpdatedAt       *time.Time      `json:"updatedAt"`
+	PlanSnapshot    json.RawMessage `json:"planSnapshot"`
+}
+
+type commandPlanApprovalSnapshotRecord struct {
+	TemplateID      string          `json:"templateId"`
+	TemplateName    string          `json:"templateName"`
+	TemplateVersion int             `json:"templateVersion"`
+	Title           string          `json:"title"`
+	RiskLevel       string          `json:"riskLevel"`
+	CommandHash     string          `json:"commandHash"`
+	TimeoutSec      int             `json:"timeoutSec"`
+	TargetAgentIDs  []string        `json:"targetAgentIds"`
+	Precheck        json.RawMessage `json:"precheck"`
+	Warnings        []PrecheckItem  `json:"warnings"`
 }
 
 type agentRecord struct {
@@ -658,6 +747,152 @@ func (c *Client) GetCommandPlan(ctx context.Context, id string) (PlanSummary, er
 	return summarizeCommandPlan(data), nil
 }
 
+// RequestCommandPlanApproval creates a server-side approval request for a ready plan.
+func (c *Client) RequestCommandPlanApproval(ctx context.Context, options CommandPlanApprovalCreateOptions) (CommandPlanApproval, error) {
+	planID, err := validateUUID(options.PlanID, "command plan ID")
+	if err != nil {
+		return CommandPlanApproval{}, err
+	}
+	reason := strings.TrimSpace(options.Reason)
+	if reason == "" {
+		return CommandPlanApproval{}, newInputError("approval reason is required")
+	}
+	if len(reason) > maxReasonLength {
+		return CommandPlanApproval{}, newInputError(fmt.Sprintf("approval reason must not exceed %d characters", maxReasonLength))
+	}
+	payload := map[string]any{"reason": reason}
+	if options.ExpiresAt != nil {
+		if options.ExpiresAt.IsZero() || !options.ExpiresAt.After(time.Now()) {
+			return CommandPlanApproval{}, newInputError("approval expiry must be in the future")
+		}
+		payload["expiresAt"] = options.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	var data commandPlanApprovalRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "command-plans", planID, "approvals"}, nil, payload, &data, true); err != nil {
+		return CommandPlanApproval{}, err
+	}
+	return summarizeCommandPlanApproval(data), nil
+}
+
+// ListCommandPlanApprovals lists approval records within the signed-in account's server-side scope.
+func (c *Client) ListCommandPlanApprovals(ctx context.Context, options CommandPlanApprovalListOptions) (CommandPlanApprovalPage, error) {
+	if options.Page < 1 {
+		return CommandPlanApprovalPage{}, newInputError("page must be at least 1")
+	}
+	if options.PageSize < 1 || options.PageSize > maxApprovalPageSize {
+		return CommandPlanApprovalPage{}, newInputError(fmt.Sprintf("page size must be between 1 and %d", maxApprovalPageSize))
+	}
+	query := url.Values{
+		"page":      {fmt.Sprintf("%d", options.Page)},
+		"page_size": {fmt.Sprintf("%d", options.PageSize)},
+	}
+	if planID := strings.TrimSpace(options.PlanID); planID != "" {
+		validated, err := validateUUID(planID, "command plan ID")
+		if err != nil {
+			return CommandPlanApprovalPage{}, err
+		}
+		query.Set("planId", validated)
+	}
+	status := strings.ToLower(strings.TrimSpace(options.Status))
+	if status != "" {
+		if _, ok := commandApprovalStatuses[status]; !ok {
+			return CommandPlanApprovalPage{}, newInputError("approval status must be pending, approved, rejected, or expired")
+		}
+		query.Set("status", status)
+	}
+	riskLevel := strings.ToLower(strings.TrimSpace(options.RiskLevel))
+	if riskLevel != "" {
+		if _, ok := commandRiskLevels[riskLevel]; !ok {
+			return CommandPlanApprovalPage{}, newInputError("risk level must be read_only, low, medium, high, or critical")
+		}
+		query.Set("riskLevel", riskLevel)
+	}
+	for name, value := range map[string]string{
+		"requesterId": options.RequesterID,
+		"approverId":  options.ApproverID,
+		"search":      options.Search,
+	} {
+		value = strings.TrimSpace(value)
+		if len(value) > 200 {
+			return CommandPlanApprovalPage{}, newInputError(fmt.Sprintf("%s must not exceed 200 characters", name))
+		}
+		if value != "" {
+			query.Set(name, value)
+		}
+	}
+	var data struct {
+		Items    []commandPlanApprovalRecord `json:"items"`
+		Total    int                         `json:"total"`
+		Page     int                         `json:"page"`
+		PageSize int                         `json:"pageSize"`
+	}
+	if err := c.do(ctx, http.MethodGet, []string{"ops", "command-plan-approvals"}, query, nil, &data, true); err != nil {
+		return CommandPlanApprovalPage{}, err
+	}
+	items := make([]CommandPlanApproval, 0, minInt(len(data.Items), maxApprovalItems))
+	itemsTruncated := false
+	for index, item := range data.Items {
+		if index >= maxApprovalItems {
+			itemsTruncated = true
+			break
+		}
+		items = append(items, summarizeCommandPlanApproval(item))
+	}
+	page := data.Page
+	if page < 1 {
+		page = options.Page
+	}
+	pageSize := data.PageSize
+	if pageSize < 1 {
+		pageSize = options.PageSize
+	}
+	// The server total remains authoritative; the local item bound protects the AI response if a proxy ignores page_size.
+	hasMore := itemsTruncated || page*pageSize < data.Total
+	nextPage := 0
+	if hasMore {
+		nextPage = page + 1
+	}
+	return CommandPlanApprovalPage{Items: items, Total: data.Total, Page: page, PageSize: pageSize, HasMore: hasMore, NextPage: nextPage}, nil
+}
+
+// GetCommandPlanApproval returns a single redacted approval record.
+func (c *Client) GetCommandPlanApproval(ctx context.Context, id string) (CommandPlanApproval, error) {
+	approvalID, err := validateUUID(id, "command plan approval ID")
+	if err != nil {
+		return CommandPlanApproval{}, err
+	}
+	var data commandPlanApprovalRecord
+	if err := c.do(ctx, http.MethodGet, []string{"ops", "command-plan-approvals", approvalID}, nil, nil, &data, true); err != nil {
+		return CommandPlanApproval{}, err
+	}
+	return summarizeCommandPlanApproval(data), nil
+}
+
+// DecideCommandPlanApproval submits an approval decision to Baize.
+// The backend decides whether the signed-in account may approve this plan.
+func (c *Client) DecideCommandPlanApproval(ctx context.Context, id string, options CommandPlanApprovalDecisionOptions) (CommandPlanApproval, error) {
+	approvalID, err := validateUUID(id, "command plan approval ID")
+	if err != nil {
+		return CommandPlanApproval{}, err
+	}
+	message := strings.TrimSpace(options.DecisionMessage)
+	if len(message) > maxReasonLength {
+		return CommandPlanApproval{}, newInputError(fmt.Sprintf("decision message must not exceed %d characters", maxReasonLength))
+	}
+	if !options.Approved && message == "" {
+		return CommandPlanApproval{}, newInputError("a rejection decision message is required")
+	}
+	payload := map[string]any{"approved": options.Approved}
+	if message != "" {
+		payload["decisionMessage"] = message
+	}
+	var data commandPlanApprovalRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "command-plan-approvals", approvalID, "decision"}, nil, payload, &data, true); err != nil {
+		return CommandPlanApproval{}, err
+	}
+	return summarizeCommandPlanApproval(data), nil
+}
+
 func (c *Client) ExecuteCommandPlan(ctx context.Context, id string, options CommandPlanExecuteOptions) (PlanExecutionSummary, error) {
 	planID, err := validateUUID(id, "command plan ID")
 	if err != nil {
@@ -835,6 +1070,57 @@ func summarizeCommandPlan(item commandPlanRecord) PlanSummary {
 		Status: trimPublicText(item.Status, maxTemplateFieldLength), DiagnosisID: item.DiagnosisID, CreatedTaskID: item.CreatedTaskID, CreatedAt: item.CreatedAt,
 		UpdatedAt: item.UpdatedAt, CancelledAt: item.CancelledAt, ExecutedAt: item.ExecutedAt,
 	}
+}
+
+func summarizeCommandPlanApproval(item commandPlanApprovalRecord) CommandPlanApproval {
+	snapshot, snapshotTruncated := summarizeApprovalPlanSnapshot(item.PlanSnapshot)
+	return CommandPlanApproval{
+		ID:                item.ID,
+		PlanID:            item.PlanID,
+		RiskLevel:         trimPublicText(item.RiskLevel, maxTemplateFieldLength),
+		Status:            trimPublicText(item.Status, maxTemplateFieldLength),
+		Reason:            trimPublicText(item.Reason, maxReasonLength),
+		DecisionMessage:   trimPublicText(item.DecisionMessage, maxReasonLength),
+		ExpiresAt:         item.ExpiresAt,
+		DecidedAt:         item.DecidedAt,
+		CreatedAt:         item.CreatedAt,
+		UpdatedAt:         item.UpdatedAt,
+		PlanSnapshot:      snapshot,
+		SnapshotTruncated: snapshotTruncated,
+	}
+}
+
+func summarizeApprovalPlanSnapshot(raw json.RawMessage) (*ApprovalPlanSnapshot, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, false
+	}
+	var item commandPlanApprovalSnapshotRecord
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return nil, true
+	}
+	var precheck PrecheckSummary
+	if len(item.Precheck) > 0 {
+		_ = json.Unmarshal(item.Precheck, &precheck)
+	}
+	var missingTruncated, blockedTruncated bool
+	precheck.MissingParameters, missingTruncated = trimPublicStringList(precheck.MissingParameters, maxTemplateFieldLength, maxTemplateParameters)
+	precheck.BlockedReasons, blockedTruncated = trimPrecheckItems(precheck.BlockedReasons)
+	warnings, warningsTruncated := trimPrecheckItems(item.Warnings)
+	targets, targetsTruncated := trimPublicStringList(item.TargetAgentIDs, 0, maxCommandTargets)
+	snapshot := &ApprovalPlanSnapshot{
+		TemplateID:      item.TemplateID,
+		TemplateName:    trimPublicText(item.TemplateName, maxTemplateFieldLength),
+		TemplateVersion: item.TemplateVersion,
+		Title:           trimPublicText(item.Title, maxReasonLength),
+		RiskLevel:       trimPublicText(item.RiskLevel, maxTemplateFieldLength),
+		CommandHash:     trimPublicText(item.CommandHash, maxTemplateFieldLength),
+		TimeoutSec:      item.TimeoutSec,
+		TargetAgentIDs:  targets,
+		Precheck:        precheck,
+		Warnings:        warnings,
+		Truncated:       missingTruncated || blockedTruncated || warningsTruncated || targetsTruncated,
+	}
+	return snapshot, snapshot.Truncated
 }
 
 func summarizeExecTask(item execTaskRecord) TaskSummary {

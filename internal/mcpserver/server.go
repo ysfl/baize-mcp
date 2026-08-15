@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -22,6 +23,10 @@ type Client interface {
 	PreviewCommandTemplate(context.Context, baize.CommandTemplateRenderOptions) (baize.CommandTemplateRenderResult, error)
 	CreateCommandPlan(context.Context, baize.CommandPlanCreateOptions) (baize.PlanSummary, error)
 	GetCommandPlan(context.Context, string) (baize.PlanSummary, error)
+	RequestCommandPlanApproval(context.Context, baize.CommandPlanApprovalCreateOptions) (baize.CommandPlanApproval, error)
+	ListCommandPlanApprovals(context.Context, baize.CommandPlanApprovalListOptions) (baize.CommandPlanApprovalPage, error)
+	GetCommandPlanApproval(context.Context, string) (baize.CommandPlanApproval, error)
+	DecideCommandPlanApproval(context.Context, string, baize.CommandPlanApprovalDecisionOptions) (baize.CommandPlanApproval, error)
 	ExecuteCommandPlan(context.Context, string, baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error)
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
 	CancelExecTask(context.Context, string) error
@@ -78,6 +83,33 @@ type commandPlanCreateInput struct {
 
 type commandPlanGetInput struct {
 	ID string `json:"id" jsonschema:"Baize command plan UUID"`
+}
+
+type commandPlanApprovalCreateInput struct {
+	PlanID    string     `json:"planId" jsonschema:"Baize command plan UUID"`
+	Reason    string     `json:"reason" jsonschema:"why this plan needs approval; do not include secrets"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty" jsonschema:"optional RFC3339 expiry time; must be in the future"`
+}
+
+type commandPlanApprovalsListInput struct {
+	Page        int    `json:"page,omitempty" jsonschema:"page number, starting at 1"`
+	PageSize    int    `json:"pageSize,omitempty" jsonschema:"number of approval records per page, from 1 to 50"`
+	PlanID      string `json:"planId,omitempty" jsonschema:"optional Baize command plan UUID"`
+	Status      string `json:"status,omitempty" jsonschema:"optional approval status: pending, approved, rejected, or expired"`
+	RiskLevel   string `json:"riskLevel,omitempty" jsonschema:"optional risk level: read_only, low, medium, high, or critical"`
+	RequesterID string `json:"requesterId,omitempty" jsonschema:"optional requester filter"`
+	ApproverID  string `json:"approverId,omitempty" jsonschema:"optional approver filter"`
+	Search      string `json:"search,omitempty" jsonschema:"optional approval reason or decision search"`
+}
+
+type commandPlanApprovalGetInput struct {
+	ID string `json:"id" jsonschema:"Baize command plan approval UUID"`
+}
+
+type commandPlanApprovalDecideInput struct {
+	ID              string `json:"id" jsonschema:"Baize command plan approval UUID"`
+	Approved        bool   `json:"approved" jsonschema:"true submits approval; false rejects it; Baize checks the signed-in account permission"`
+	DecisionMessage string `json:"decisionMessage,omitempty" jsonschema:"short decision explanation; required when approved is false"`
 }
 
 type commandPlanExecuteInput struct {
@@ -199,6 +231,57 @@ func New(client Client) *mcp.Server {
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanGetInput) (*mcp.CallToolResult, baize.PlanSummary, error) {
 		plan, err := client.GetCommandPlan(ctx, input.ID)
 		return nil, plan, toolError(err)
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_command_plan_approval_create",
+		"Request command-plan approval",
+		"Creates a server-side approval request for a ready command plan. It never executes the plan; Baize decides whether the signed-in account may request approval.",
+		false,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanApprovalCreateInput) (*mcp.CallToolResult, baize.CommandPlanApproval, error) {
+		approval, err := client.RequestCommandPlanApproval(ctx, baize.CommandPlanApprovalCreateOptions{
+			PlanID: strings.TrimSpace(input.PlanID), Reason: strings.TrimSpace(input.Reason), ExpiresAt: input.ExpiresAt,
+		})
+		return nil, approval, writeToolError(err)
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_command_plan_approvals_list",
+		"List command-plan approvals",
+		"Lists approval records visible to the signed-in account. Results include bounded status and redacted plan-review fields, never policy details or command text.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanApprovalsListInput) (*mcp.CallToolResult, baize.CommandPlanApprovalPage, error) {
+		if input.Page == 0 {
+			input.Page = 1
+		}
+		if input.PageSize == 0 {
+			input.PageSize = 20
+		}
+		page, err := client.ListCommandPlanApprovals(ctx, baize.CommandPlanApprovalListOptions{
+			Page: input.Page, PageSize: input.PageSize, PlanID: strings.TrimSpace(input.PlanID), Status: strings.TrimSpace(input.Status),
+			RiskLevel: strings.TrimSpace(input.RiskLevel), RequesterID: strings.TrimSpace(input.RequesterID), ApproverID: strings.TrimSpace(input.ApproverID), Search: strings.TrimSpace(input.Search),
+		})
+		return nil, page, toolError(err)
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_command_plan_approval_get",
+		"Get command-plan approval",
+		"Returns one approval record and a bounded, redacted plan snapshot for review. It excludes command text, parameters, policy details, operator identity, and credentials.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanApprovalGetInput) (*mcp.CallToolResult, baize.CommandPlanApproval, error) {
+		approval, err := client.GetCommandPlanApproval(ctx, input.ID)
+		return nil, approval, toolError(err)
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_command_plan_approval_decide",
+		"Decide command-plan approval",
+		"Submits approval or rejection for a pending command-plan approval. approved=true is allowed only when Baize grants the signed-in account the required permission; this tool does not execute the plan.",
+		true,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanApprovalDecideInput) (*mcp.CallToolResult, baize.CommandPlanApproval, error) {
+		approval, err := client.DecideCommandPlanApproval(ctx, input.ID, baize.CommandPlanApprovalDecisionOptions{
+			Approved: input.Approved, DecisionMessage: strings.TrimSpace(input.DecisionMessage),
+		})
+		return nil, approval, writeToolError(err)
 	})
 
 	mcp.AddTool(server, writeTool(

@@ -19,6 +19,9 @@ type fakeClient struct {
 	templateListOptions baize.CommandTemplateListOptions
 	planID              string
 	taskID              string
+	approvalID          string
+	approvalOptions     baize.CommandPlanApprovalListOptions
+	approvalDecision    baize.CommandPlanApprovalDecisionOptions
 	checkErr            error
 	listErr             error
 	getErr              error
@@ -85,6 +88,43 @@ func (f *fakeClient) GetCommandPlan(_ context.Context, id string) (baize.PlanSum
 	return baize.PlanSummary{ID: id, Status: "ready"}, nil
 }
 
+func (f *fakeClient) RequestCommandPlanApproval(_ context.Context, options baize.CommandPlanApprovalCreateOptions) (baize.CommandPlanApproval, error) {
+	if f.writeErr != nil {
+		return baize.CommandPlanApproval{}, f.writeErr
+	}
+	f.approvalID = "eeeeeeee-ffff-0000-1111-222222222222"
+	return baize.CommandPlanApproval{ID: f.approvalID, PlanID: options.PlanID, RiskLevel: "critical", Status: "pending", Reason: options.Reason}, nil
+}
+
+func (f *fakeClient) ListCommandPlanApprovals(_ context.Context, options baize.CommandPlanApprovalListOptions) (baize.CommandPlanApprovalPage, error) {
+	if f.writeErr != nil {
+		return baize.CommandPlanApprovalPage{}, f.writeErr
+	}
+	f.approvalOptions = options
+	return baize.CommandPlanApprovalPage{Items: []baize.CommandPlanApproval{{ID: "eeeeeeee-ffff-0000-1111-222222222222", PlanID: options.PlanID, RiskLevel: "critical", Status: "pending", Reason: "maintenance"}}, Total: 1, Page: options.Page, PageSize: options.PageSize}, nil
+}
+
+func (f *fakeClient) GetCommandPlanApproval(_ context.Context, id string) (baize.CommandPlanApproval, error) {
+	if f.writeErr != nil {
+		return baize.CommandPlanApproval{}, f.writeErr
+	}
+	f.approvalID = id
+	return baize.CommandPlanApproval{ID: id, PlanID: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", RiskLevel: "critical", Status: "pending", Reason: "maintenance"}, nil
+}
+
+func (f *fakeClient) DecideCommandPlanApproval(_ context.Context, id string, options baize.CommandPlanApprovalDecisionOptions) (baize.CommandPlanApproval, error) {
+	if f.writeErr != nil {
+		return baize.CommandPlanApproval{}, f.writeErr
+	}
+	f.approvalID = id
+	f.approvalDecision = options
+	status := "rejected"
+	if options.Approved {
+		status = "approved"
+	}
+	return baize.CommandPlanApproval{ID: id, PlanID: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", RiskLevel: "critical", Status: status, DecisionMessage: options.DecisionMessage}, nil
+}
+
 func (f *fakeClient) ExecuteCommandPlan(_ context.Context, id string, _ baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error) {
 	if f.writeErr != nil {
 		return baize.PlanExecutionSummary{}, f.writeErr
@@ -115,16 +155,20 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	clientSession := connectClient(t, ctx, fake)
 
 	wantNames := map[string]bool{
-		"baize_connection_status":        false,
-		"baize_agents_list":              false,
-		"baize_agent_get":                false,
-		"baize_command_templates_list":   false,
-		"baize_command_template_preview": false,
-		"baize_command_plan_create":      false,
-		"baize_command_plan_get":         false,
-		"baize_command_plan_execute":     false,
-		"baize_exec_task_get":            false,
-		"baize_exec_task_cancel":         false,
+		"baize_connection_status":            false,
+		"baize_agents_list":                  false,
+		"baize_agent_get":                    false,
+		"baize_command_templates_list":       false,
+		"baize_command_template_preview":     false,
+		"baize_command_plan_create":          false,
+		"baize_command_plan_get":             false,
+		"baize_command_plan_approval_create": false,
+		"baize_command_plan_approvals_list":  false,
+		"baize_command_plan_approval_get":    false,
+		"baize_command_plan_approval_decide": false,
+		"baize_command_plan_execute":         false,
+		"baize_exec_task_get":                false,
+		"baize_exec_task_cancel":             false,
 	}
 	for tool, err := range clientSession.Tools(ctx, nil) {
 		if err != nil {
@@ -137,7 +181,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		if tool.Annotations == nil {
 			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_exec_task_get"
+		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get"
 		if readOnly {
 			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
@@ -204,6 +248,24 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	assertStructuredFieldsAbsent(t, plan, "renderedPreview", "parameters", "workDir", "operatorId", "operatorName", "command")
 	if !strings.Contains(plan, "ready") {
 		t.Fatalf("unexpected plan result: %s", plan)
+	}
+	approval := callTool(t, ctx, clientSession, "baize_command_plan_approval_create", map[string]any{
+		"planId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "reason": "critical maintenance approval",
+	})
+	if !strings.Contains(approval, "pending") || strings.Contains(approval, "policySnapshot") {
+		t.Fatalf("unexpected approval result: %s", approval)
+	}
+	approvalList := callTool(t, ctx, clientSession, "baize_command_plan_approvals_list", map[string]any{"status": "pending"})
+	if !strings.Contains(approvalList, "pending") {
+		t.Fatalf("unexpected approval list result: %s", approvalList)
+	}
+	approvalDetail := callTool(t, ctx, clientSession, "baize_command_plan_approval_get", map[string]any{"id": "eeeeeeee-ffff-0000-1111-222222222222"})
+	if !strings.Contains(approvalDetail, "critical") {
+		t.Fatalf("unexpected approval detail result: %s", approvalDetail)
+	}
+	approved := callTool(t, ctx, clientSession, "baize_command_plan_approval_decide", map[string]any{"id": "eeeeeeee-ffff-0000-1111-222222222222", "approved": true, "decisionMessage": "approved for maintenance"})
+	if !strings.Contains(approved, "approved") || !fake.approvalDecision.Approved {
+		t.Fatalf("unexpected approval decision result: %s", approved)
 	}
 	executed := callTool(t, ctx, clientSession, "baize_command_plan_execute", map[string]any{"id": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "confirmRisk": true})
 	if !strings.Contains(executed, "pending") {

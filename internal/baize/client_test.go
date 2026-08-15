@@ -267,6 +267,111 @@ func TestClientRejectsCommandWorkflowInput(t *testing.T) {
 	}
 }
 
+func TestClientCommandPlanApprovalWorkflowUsesPublishedEndpointsAndRedactsSnapshot(t *testing.T) {
+	const (
+		planID     = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+		approvalID = "eeeeeeee-ffff-0000-1111-222222222222"
+		targetID   = "11111111-2222-3333-4444-555555555555"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer session-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/v1/ops/command-plans/" + planID + "/approvals":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode approval request: %v", err)
+			}
+			if body["reason"] != "critical maintenance" || body["expiresAt"] == nil {
+				t.Fatalf("unexpected approval request: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + approvalID + `","planId":"` + planID + `","riskLevel":"critical","status":"pending","reason":"critical maintenance","requesterId":"private-user","requesterName":"Operator","planSnapshot":{"templateId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","templateName":"Restart service","templateVersion":2,"title":"Restart","riskLevel":"critical","commandHash":"hash","renderedPreview":"do-not-expose","workDir":"/srv","parameters":{"secret":"hidden"},"targetAgentIds":["` + targetID + `"],"precheck":{"precheckPassed":true},"warnings":[]},"policySnapshot":{"requiredApproverPermission":"private.permission"}}}`))
+		case http.MethodGet + " /api/v1/ops/command-plan-approvals":
+			if got := r.URL.Query().Get("page_size"); got != "10" {
+				t.Fatalf("page_size = %q", got)
+			}
+			if got := r.URL.Query().Get("status"); got != "pending" {
+				t.Fatalf("status = %q", got)
+			}
+			if got := r.URL.Query().Get("riskLevel"); got != "critical" {
+				t.Fatalf("riskLevel = %q", got)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":"` + approvalID + `","planId":"` + planID + `","riskLevel":"critical","status":"pending","reason":"critical maintenance","planSnapshot":{"templateName":"Restart service","renderedPreview":"do-not-expose","parameters":{"secret":"hidden"},"targetAgentIds":["` + targetID + `"]}}],"total":20,"page":1,"pageSize":10}}`))
+		case http.MethodGet + " /api/v1/ops/command-plan-approvals/" + approvalID:
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + approvalID + `","planId":"` + planID + `","riskLevel":"critical","status":"approved","reason":"critical maintenance","decisionMessage":"approved","requesterName":"Operator","approverName":"Approver","planSnapshot":{"templateName":"Restart service","commandHash":"hash","renderedPreview":"do-not-expose","parameters":{"secret":"hidden"},"targetAgentIds":["` + targetID + `"],"precheck":{"precheckPassed":true}}}}`))
+		case http.MethodPost + " /api/v1/ops/command-plan-approvals/" + approvalID + "/decision":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode approval decision: %v", err)
+			}
+			if body["approved"] != true || body["decisionMessage"] != "approved" {
+				t.Fatalf("unexpected approval decision: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + approvalID + `","planId":"` + planID + `","riskLevel":"critical","status":"approved","decisionMessage":"approved"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "session-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+	expiresAt := time.Now().Add(10 * time.Minute)
+	approval, err := client.RequestCommandPlanApproval(context.Background(), CommandPlanApprovalCreateOptions{PlanID: planID, Reason: "critical maintenance", ExpiresAt: &expiresAt})
+	if err != nil {
+		t.Fatalf("RequestCommandPlanApproval() error: %v", err)
+	}
+	if approval.ID != approvalID || approval.PlanSnapshot == nil || approval.PlanSnapshot.TemplateName != "Restart service" {
+		t.Fatalf("approval = %#v", approval)
+	}
+	raw, err := json.Marshal(approval)
+	if err != nil {
+		t.Fatalf("marshal approval: %v", err)
+	}
+	for _, forbidden := range []string{"renderedPreview", "do-not-expose", "workDir", "parameters", "secret", "policySnapshot", "private.permission", "requesterName", "approverName"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("approval exposed %q: %s", forbidden, raw)
+		}
+	}
+	page, err := client.ListCommandPlanApprovals(context.Background(), CommandPlanApprovalListOptions{Page: 1, PageSize: 10, Status: "pending", RiskLevel: "critical"})
+	if err != nil || !page.HasMore || page.NextPage != 2 || page.Total != 20 {
+		t.Fatalf("approval page = %#v, error = %v", page, err)
+	}
+	detail, err := client.GetCommandPlanApproval(context.Background(), approvalID)
+	if err != nil || detail.Status != "approved" {
+		t.Fatalf("approval detail = %#v, error = %v", detail, err)
+	}
+	if _, err := client.DecideCommandPlanApproval(context.Background(), approvalID, CommandPlanApprovalDecisionOptions{Approved: true, DecisionMessage: "approved"}); err != nil {
+		t.Fatalf("DecideCommandPlanApproval() error: %v", err)
+	}
+}
+
+func TestClientRejectsInvalidCommandPlanApprovalInput(t *testing.T) {
+	client, err := NewClient("https://baize.example.com/api/v1", "session-token", false, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+	if _, err := client.RequestCommandPlanApproval(context.Background(), CommandPlanApprovalCreateOptions{PlanID: "bad", Reason: "reason"}); err == nil {
+		t.Fatal("RequestCommandPlanApproval() accepted invalid plan ID")
+	}
+	if _, err := client.RequestCommandPlanApproval(context.Background(), CommandPlanApprovalCreateOptions{PlanID: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"}); err == nil {
+		t.Fatal("RequestCommandPlanApproval() accepted an empty reason")
+	}
+	if _, err := client.ListCommandPlanApprovals(context.Background(), CommandPlanApprovalListOptions{Page: 1, PageSize: maxApprovalPageSize + 1}); err == nil {
+		t.Fatal("ListCommandPlanApprovals() accepted an oversized page")
+	}
+	if _, err := client.ListCommandPlanApprovals(context.Background(), CommandPlanApprovalListOptions{Page: 1, PageSize: 10, Status: "unknown"}); err == nil {
+		t.Fatal("ListCommandPlanApprovals() accepted an invalid status")
+	}
+	if _, err := client.DecideCommandPlanApproval(context.Background(), "eeeeeeee-ffff-0000-1111-222222222222", CommandPlanApprovalDecisionOptions{}); err == nil {
+		t.Fatal("DecideCommandPlanApproval() accepted an empty rejection message")
+	}
+}
+
 func boolPtr(value bool) *bool {
 	return &value
 }
