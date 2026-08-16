@@ -4,9 +4,7 @@
 
 This file records user-visible changes in published Baize MCP versions.
 
-## Unreleased
-
-### 候选 / Candidate
+## 0.1.3 - 2026-08-16
 
 ### 中文
 

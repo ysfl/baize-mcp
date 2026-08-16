@@ -1,7 +1,35 @@
 {
   "schemaVersion": "baize.mcp.changelog.v1",
-  "generatedAt": "2026-08-14T00:00:00Z",
+  "generatedAt": "2026-08-16T00:00:00Z",
   "entries": [
+    {
+      "version": "0.1.3",
+      "tag": "v0.1.3",
+      "channel": "stable",
+      "releasedAt": "2026-08-16",
+      "minimumBaizeVersion": "0.2.1",
+      "transport": "stdio",
+      "title": {
+        "zh": "增加命令计划审批闭环",
+        "en": "Added command-plan approval workflow"
+      },
+      "summary": {
+        "zh": "AI 客户端可以在白泽账号权限和审批规则范围内申请、查看并提交计划审批决定，同时保持执行前的独立确认。",
+        "en": "AI clients can request, inspect, and submit plan-approval decisions within Baize account permissions and approval rules while keeping execution as a separate confirmation."
+      },
+      "items": {
+        "zh": [
+          "增加审批申请、分页列表、详情和通过/驳回决策工具。",
+          "增加分页继续标记和 64 KiB 工具目录/结构化结果限制。",
+          "改进 Linux、macOS 和 Windows 的 AI 接入升级，并将源码构建最低版本更新为 Go 1.25.13。"
+        ],
+        "en": [
+          "Adds approval request, paginated listing, detail, and approve/reject decision tools.",
+          "Adds pagination continuation markers and 64 KiB tool-catalog and structured-result limits.",
+          "Improves AI access upgrades on Linux, macOS, and Windows, and raises the minimum source-build version to Go 1.25.13."
+        ]
+      }
+    },
     {
       "version": "0.1.2",
       "tag": "v0.1.2",
