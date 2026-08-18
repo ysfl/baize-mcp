@@ -981,12 +981,17 @@ func (c *Client) ListCommandPlanApprovalPolicies(ctx context.Context) ([]Command
 		return nil, err
 	}
 	items := make([]CommandPlanApprovalPolicySummary, 0, minInt(len(data.Items), maxApprovalPolicies))
-	for index, item := range data.Items {
-		if index >= maxApprovalPolicies {
+	for _, item := range data.Items {
+		riskLevel := strings.ToLower(strings.TrimSpace(item.RiskLevel))
+		if _, ok := commandRiskLevels[riskLevel]; !ok {
+			// 风险等级是公开稳定枚举；丢弃未知值，避免把服务端策略内部名称带入 AI 上下文。
+			continue
+		}
+		if len(items) >= maxApprovalPolicies {
 			break
 		}
 		items = append(items, CommandPlanApprovalPolicySummary{
-			RiskLevel:         trimPublicText(item.RiskLevel, maxTemplateFieldLength),
+			RiskLevel:         riskLevel,
 			Enabled:           item.Enabled,
 			AllowSelfApproval: item.AllowSelfApproval,
 		})

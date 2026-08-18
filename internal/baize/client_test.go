@@ -320,7 +320,7 @@ func TestClientCommandPlanApprovalWorkflowUsesPublishedEndpointsAndRedactsSnapsh
 			}
 			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + approvalID + `","planId":"` + planID + `","riskLevel":"critical","status":"approved","decisionMessage":"approved"}}`))
 		case http.MethodGet + " /api/v1/ops/command-plan-approval-policies":
-			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"riskLevel":"high","enabled":true,"allowSelfApproval":false,"requiredApproverPermission":"private.permission","notificationChannelIds":["secret-channel"]},{"riskLevel":"critical","enabled":true,"allowSelfApproval":true}]}}`))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"riskLevel":"high","enabled":true,"allowSelfApproval":false,"requiredApproverPermission":"private.permission","notificationChannelIds":["secret-channel"]},{"riskLevel":"critical","enabled":true,"allowSelfApproval":true},{"riskLevel":"internal-policy-name","enabled":true,"allowSelfApproval":true}]}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -371,7 +371,7 @@ func TestClientCommandPlanApprovalWorkflowUsesPublishedEndpointsAndRedactsSnapsh
 	if err != nil {
 		t.Fatalf("marshal policies: %v", err)
 	}
-	for _, forbidden := range []string{"private.permission", "secret-channel", "notificationChannelIds"} {
+	for _, forbidden := range []string{"private.permission", "secret-channel", "notificationChannelIds", "internal-policy-name"} {
 		if strings.Contains(string(rawPolicies), forbidden) {
 			t.Fatalf("policy summary exposed %q: %s", forbidden, rawPolicies)
 		}
