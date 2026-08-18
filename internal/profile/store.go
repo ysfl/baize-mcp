@@ -14,14 +14,38 @@ import (
 
 const schemaVersion = 1
 
+const (
+	// WorkflowModeMulti 要求高风险计划沿用多人审批流程，是默认模式。
+	WorkflowModeMulti = "multi"
+	// WorkflowModeSingle 适配单人部署，但是否允许自审批仍由白泽服务端策略决定。
+	WorkflowModeSingle = "single"
+)
+
 var (
 	ErrNotFound   = errors.New("profile not found")
 	profileNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 )
 
 type Profile struct {
-	APIURL    string `json:"apiUrl"`
-	AllowHTTP bool   `json:"allowHttp,omitempty"`
+	APIURL       string `json:"apiUrl"`
+	AllowHTTP    bool   `json:"allowHttp,omitempty"`
+	WorkflowMode string `json:"workflowMode,omitempty"`
+}
+
+// EffectiveWorkflowMode 返回 profile 的有效工作流模式；旧 profile 没有该字段时默认多人模式。
+func (p Profile) EffectiveWorkflowMode() string {
+	if p.WorkflowMode == WorkflowModeSingle {
+		return WorkflowModeSingle
+	}
+	return WorkflowModeMulti
+}
+
+// ValidateWorkflowMode 校验用户选择的工作流模式。
+func ValidateWorkflowMode(mode string) error {
+	if mode != WorkflowModeMulti && mode != WorkflowModeSingle {
+		return fmt.Errorf("workflow mode must be %q or %q", WorkflowModeMulti, WorkflowModeSingle)
+	}
+	return nil
 }
 
 type fileData struct {

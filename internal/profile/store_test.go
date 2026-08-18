@@ -47,3 +47,16 @@ func TestStoreReturnsNotFound(t *testing.T) {
 		t.Fatalf("Get() error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestProfileDefaultsToMultiWorkflowMode(t *testing.T) {
+	item := Profile{APIURL: "https://baize.example.com/api/v1"}
+	if got := item.EffectiveWorkflowMode(); got != WorkflowModeMulti {
+		t.Fatalf("EffectiveWorkflowMode() = %q, want %q", got, WorkflowModeMulti)
+	}
+	if err := ValidateWorkflowMode(WorkflowModeSingle); err != nil {
+		t.Fatalf("ValidateWorkflowMode(single) error = %v", err)
+	}
+	if err := ValidateWorkflowMode("invalid"); err == nil {
+		t.Fatal("ValidateWorkflowMode() accepted an unknown mode")
+	}
+}

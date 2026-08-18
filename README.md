@@ -75,6 +75,21 @@ baize-mcp login \
 
 候选版本还增加命令计划审批工具：`baize_command_plan_approval_create`、`baize_command_plan_approvals_list`、`baize_command_plan_approval_get` 和 `baize_command_plan_approval_decide`。这些工具只有在对应版本发布后才进入稳定支持；审批通过仍需当前账号具备后端权限，且不会自动执行计划。
 
+### 下一版本候选（尚未随稳定版本发布）
+
+- `baize_workflow_status`：读取本机 profile 的工作流模式和白泽服务端审批策略摘要；当前账号没有策略查看权限时仍返回本地模式，并将 `approvalPolicyAccess` 标记为 `not_visible`。
+- `baize_command_plan_cancel`：取消尚未执行的命令计划。
+- profile 支持 `multi`（默认）和 `single`。单人模式只改变工作流偏好；是否允许自审批、是否需要审批以及审计仍由白泽服务端策略决定。
+
+可以在本机 profile 中切换模式：
+
+```bash
+baize-mcp config set --profile default --workflow-mode single
+baize-mcp config get --profile default
+```
+
+当前 MCP 不提供关闭白泽服务端审计的开关；它没有独立的远程审计存储，审计由白泽服务端负责。
+
 ## 版本与更新
 
 - 结构化更新记录：[releases/changelog.json](releases/changelog.json)

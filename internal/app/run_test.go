@@ -65,3 +65,30 @@ func TestRunStatusReturnsAuthenticationStateOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestRunConfigChangesWorkflowModeWithoutExposingProfileSecrets(t *testing.T) {
+	profiles := profile.NewStore(filepath.Join(t.TempDir(), "profiles.json"))
+	if err := profiles.Put("default", profile.Profile{APIURL: "https://private.example.com/api/v1", WorkflowMode: profile.WorkflowModeMulti}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runConfig([]string{"set", "--profile", "default", "--workflow-mode", "single"}, &stdout, &stderr, profiles); err != nil {
+		t.Fatalf("runConfig(set) error = %v, stderr = %s", err, stderr.String())
+	}
+	if got := stdout.String(); got != "{\"workflowMode\":\"single\"}\n" {
+		t.Fatalf("runConfig(set) output = %q", got)
+	}
+	stdout.Reset()
+	if err := runConfig([]string{"get", "--profile", "default"}, &stdout, &stderr, profiles); err != nil {
+		t.Fatalf("runConfig(get) error = %v", err)
+	}
+	if got := stdout.String(); got != "{\"workflowMode\":\"single\"}\n" {
+		t.Fatalf("runConfig(get) output = %q", got)
+	}
+	for _, forbidden := range []string{"private.example.com", "api/v1", "default"} {
+		if strings.Contains(stdout.String(), forbidden) {
+			t.Fatalf("runConfig() output contains %q: %s", forbidden, stdout.String())
+		}
+	}
+}

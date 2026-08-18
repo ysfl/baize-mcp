@@ -75,6 +75,21 @@ After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/sk
 
 The candidate also adds command-plan approval tools: `baize_command_plan_approval_create`, `baize_command_plan_approvals_list`, `baize_command_plan_approval_get`, and `baize_command_plan_approval_decide`. They become stable only after the corresponding release is published; approval still requires the backend permission of the signed-in account and never executes a plan automatically.
 
+### Next-release candidate (not in the stable release yet)
+
+- `baize_workflow_status`: reads the local profile workflow mode and a minimal summary of the Baize server approval policies; if the signed-in account cannot view policies, it still returns the local mode and marks `approvalPolicyAccess` as `not_visible`.
+- `baize_command_plan_cancel`: cancels a command plan that has not been executed.
+- Profiles support `multi` (the default) and `single`. Single-user mode changes the workflow preference only; Baize still decides whether self-approval, approval, or audit is required.
+
+Switch the mode in the local profile:
+
+```bash
+baize-mcp config set --profile default --workflow-mode single
+baize-mcp config get --profile default
+```
+
+MCP does not provide a switch to disable Baize server audit. MCP has no independent remote audit store; Baize remains responsible for that audit.
+
 ## Versions and Updates
 
 - Structured update history: [releases/changelog.json](releases/changelog.json)

@@ -288,6 +288,15 @@ func TestClientCommandPlanApprovalWorkflowUsesPublishedEndpointsAndRedactsSnapsh
 				t.Fatalf("unexpected approval request: %#v", body)
 			}
 			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + approvalID + `","planId":"` + planID + `","riskLevel":"critical","status":"pending","reason":"critical maintenance","requesterId":"private-user","requesterName":"Operator","planSnapshot":{"templateId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","templateName":"Restart service","templateVersion":2,"title":"Restart","riskLevel":"critical","commandHash":"hash","renderedPreview":"do-not-expose","workDir":"/srv","parameters":{"secret":"hidden"},"targetAgentIds":["` + targetID + `"],"precheck":{"precheckPassed":true},"warnings":[]},"policySnapshot":{"requiredApproverPermission":"private.permission"}}}`))
+		case http.MethodPost + " /api/v1/ops/command-plans/" + planID + "/cancel":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode cancel request: %v", err)
+			}
+			if body["reason"] != "no longer needed" {
+				t.Fatalf("unexpected cancel request: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + planID + `","templateId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","templateName":"Restart service","riskLevel":"critical","status":"cancelled","targetAgentIds":["` + targetID + `"]}}`))
 		case http.MethodGet + " /api/v1/ops/command-plan-approvals":
 			if got := r.URL.Query().Get("page_size"); got != "10" {
 				t.Fatalf("page_size = %q", got)
@@ -310,6 +319,8 @@ func TestClientCommandPlanApprovalWorkflowUsesPublishedEndpointsAndRedactsSnapsh
 				t.Fatalf("unexpected approval decision: %#v", body)
 			}
 			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + approvalID + `","planId":"` + planID + `","riskLevel":"critical","status":"approved","decisionMessage":"approved"}}`))
+		case http.MethodGet + " /api/v1/ops/command-plan-approval-policies":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"riskLevel":"high","enabled":true,"allowSelfApproval":false,"requiredApproverPermission":"private.permission","notificationChannelIds":["secret-channel"]},{"riskLevel":"critical","enabled":true,"allowSelfApproval":true}]}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -348,6 +359,23 @@ func TestClientCommandPlanApprovalWorkflowUsesPublishedEndpointsAndRedactsSnapsh
 	if _, err := client.DecideCommandPlanApproval(context.Background(), approvalID, CommandPlanApprovalDecisionOptions{Approved: true, DecisionMessage: "approved"}); err != nil {
 		t.Fatalf("DecideCommandPlanApproval() error: %v", err)
 	}
+	plan, err := client.CancelCommandPlan(context.Background(), planID, "no longer needed")
+	if err != nil || plan.Status != "cancelled" {
+		t.Fatalf("CancelCommandPlan() = %#v, error: %v", plan, err)
+	}
+	policies, err := client.ListCommandPlanApprovalPolicies(context.Background())
+	if err != nil || len(policies) != 2 || policies[1].AllowSelfApproval != true {
+		t.Fatalf("ListCommandPlanApprovalPolicies() = %#v, error: %v", policies, err)
+	}
+	rawPolicies, err := json.Marshal(policies)
+	if err != nil {
+		t.Fatalf("marshal policies: %v", err)
+	}
+	for _, forbidden := range []string{"private.permission", "secret-channel", "notificationChannelIds"} {
+		if strings.Contains(string(rawPolicies), forbidden) {
+			t.Fatalf("policy summary exposed %q: %s", forbidden, rawPolicies)
+		}
+	}
 }
 
 func TestClientRejectsInvalidCommandPlanApprovalInput(t *testing.T) {
@@ -369,6 +397,9 @@ func TestClientRejectsInvalidCommandPlanApprovalInput(t *testing.T) {
 	}
 	if _, err := client.DecideCommandPlanApproval(context.Background(), "eeeeeeee-ffff-0000-1111-222222222222", CommandPlanApprovalDecisionOptions{}); err == nil {
 		t.Fatal("DecideCommandPlanApproval() accepted an empty rejection message")
+	}
+	if _, err := client.CancelCommandPlan(context.Background(), "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", strings.Repeat("x", maxReasonLength+1)); err == nil {
+		t.Fatal("CancelCommandPlan() accepted an oversized reason")
 	}
 }
 

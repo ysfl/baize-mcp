@@ -14,6 +14,7 @@ import (
 
 	"github.com/ysfl/baize-mcp/internal/baize"
 	"github.com/ysfl/baize-mcp/internal/buildinfo"
+	"github.com/ysfl/baize-mcp/internal/profile"
 )
 
 const maxToolOutputBytes = 64 << 10
@@ -26,10 +27,12 @@ type Client interface {
 	PreviewCommandTemplate(context.Context, baize.CommandTemplateRenderOptions) (baize.CommandTemplateRenderResult, error)
 	CreateCommandPlan(context.Context, baize.CommandPlanCreateOptions) (baize.PlanSummary, error)
 	GetCommandPlan(context.Context, string) (baize.PlanSummary, error)
+	CancelCommandPlan(context.Context, string, string) (baize.PlanSummary, error)
 	RequestCommandPlanApproval(context.Context, baize.CommandPlanApprovalCreateOptions) (baize.CommandPlanApproval, error)
 	ListCommandPlanApprovals(context.Context, baize.CommandPlanApprovalListOptions) (baize.CommandPlanApprovalPage, error)
 	GetCommandPlanApproval(context.Context, string) (baize.CommandPlanApproval, error)
 	DecideCommandPlanApproval(context.Context, string, baize.CommandPlanApprovalDecisionOptions) (baize.CommandPlanApproval, error)
+	ListCommandPlanApprovalPolicies(context.Context) ([]baize.CommandPlanApprovalPolicySummary, error)
 	ExecuteCommandPlan(context.Context, string, baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error)
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
 	CancelExecTask(context.Context, string) error
@@ -40,6 +43,23 @@ type emptyInput struct{}
 type connectionStatusOutput struct {
 	Connected bool `json:"connected" jsonschema:"whether the saved session was accepted by Baize"`
 }
+
+// Options 控制 MCP 本地工作流偏好；权限、审批和审计仍由白泽服务端决定。
+type Options struct {
+	WorkflowMode string
+}
+
+type workflowStatusOutput struct {
+	WorkflowMode         string                                   `json:"workflowMode"`
+	ApprovalPolicies     []baize.CommandPlanApprovalPolicySummary `json:"approvalPolicies"`
+	ApprovalPolicyAccess string                                   `json:"approvalPolicyAccess"`
+	AuditControl         string                                   `json:"auditControl"`
+}
+
+const (
+	approvalPolicyAccessAvailable  = "available"
+	approvalPolicyAccessNotVisible = "not_visible"
+)
 
 type agentsListInput struct {
 	Page         int    `json:"page,omitempty" jsonschema:"page number, starting at 1"`
@@ -88,6 +108,11 @@ type commandPlanGetInput struct {
 	ID string `json:"id" jsonschema:"Baize command plan UUID"`
 }
 
+type commandPlanCancelInput struct {
+	ID     string `json:"id" jsonschema:"Baize command plan UUID"`
+	Reason string `json:"reason,omitempty" jsonschema:"optional cancellation reason; do not include secrets"`
+}
+
 type commandPlanApprovalCreateInput struct {
 	PlanID    string     `json:"planId" jsonschema:"Baize command plan UUID"`
 	Reason    string     `json:"reason" jsonschema:"why this plan needs approval; do not include secrets"`
@@ -132,10 +157,48 @@ type execTaskCancelInput struct {
 }
 
 func New(client Client) *mcp.Server {
+	return NewWithOptions(client, Options{WorkflowMode: profile.WorkflowModeMulti})
+}
+
+// NewWithOptions 创建带本地工作流偏好的 MCP 服务。
+func NewWithOptions(client Client, options Options) *mcp.Server {
+	workflowMode := options.WorkflowMode
+	if workflowMode != profile.WorkflowModeSingle {
+		workflowMode = profile.WorkflowModeMulti
+	}
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: "baize-mcp", Version: buildinfo.Version},
 		&mcp.ServerOptions{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
 	)
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_workflow_status",
+		"Get Baize workflow mode",
+		"Returns the local single-user or multi-user workflow preference and, when visible to the signed-in account, the server approval policy summary. It never changes permissions or disables Baize audit.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, workflowStatusOutput, error) {
+		policies, err := client.ListCommandPlanApprovalPolicies(ctx)
+		policyAccess := approvalPolicyAccessAvailable
+		if err != nil {
+			var apiErr *baize.APIError
+			// 审批策略查看权限是管理能力；普通账号不能因看不到策略而失去本地模式状态。
+			// 404 兼容尚未发布该只读端点的旧白泽服务，二者都不暴露底层响应细节。
+			if errors.As(err, &apiErr) && (apiErr.StatusCode == 403 || apiErr.StatusCode == 404) {
+				policies = []baize.CommandPlanApprovalPolicySummary{}
+				policyAccess = approvalPolicyAccessNotVisible
+				err = nil
+			}
+		}
+		if policies == nil {
+			policies = []baize.CommandPlanApprovalPolicySummary{}
+		}
+		result := workflowStatusOutput{
+			WorkflowMode:         workflowMode,
+			ApprovalPolicies:     policies,
+			ApprovalPolicyAccess: policyAccess,
+			AuditControl:         "server_managed",
+		}
+		return toolOutput(result, err, "read")
+	})
 
 	mcp.AddTool(server, readOnlyTool(
 		"baize_connection_status",
@@ -234,6 +297,16 @@ func New(client Client) *mcp.Server {
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanGetInput) (*mcp.CallToolResult, baize.PlanSummary, error) {
 		plan, err := client.GetCommandPlan(ctx, input.ID)
 		return toolOutput(plan, err, "read")
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_command_plan_cancel",
+		"Cancel a Baize command plan",
+		"Cancels a ready or otherwise not-yet-executed command plan. Baize records the action and applies its existing permission and state rules.",
+		true,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input commandPlanCancelInput) (*mcp.CallToolResult, baize.PlanSummary, error) {
+		plan, err := client.CancelCommandPlan(ctx, input.ID, strings.TrimSpace(input.Reason))
+		return toolOutput(plan, err, "write")
 	})
 
 	mcp.AddTool(server, writeTool(

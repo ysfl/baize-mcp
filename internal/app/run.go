@@ -46,6 +46,8 @@ func Run(ctx context.Context, args []string, stdin *os.File, stdout, stderr io.W
 		err = runLogout(ctx, args[1:], stdout, stderr, store, credentials)
 	case "serve":
 		err = runServe(ctx, args[1:], stdin, stdout, stderr, store, credentials)
+	case "config":
+		err = runConfig(args[1:], stdout, stderr, store)
 	case "config-path":
 		if len(args) != 1 {
 			err = errors.New("config-path does not accept arguments")
@@ -75,11 +77,11 @@ func runServe(ctx context.Context, args []string, stdin io.ReadCloser, stdout io
 	if flags.NArg() != 0 {
 		return errors.New("serve received unexpected positional arguments")
 	}
-	client, _, err := authenticatedClient(*profileName, profiles, credentials)
+	client, item, err := authenticatedClient(*profileName, profiles, credentials)
 	if err != nil {
 		return err
 	}
-	server := mcpserver.New(client)
+	server := mcpserver.NewWithOptions(client, mcpserver.Options{WorkflowMode: item.EffectiveWorkflowMode()})
 	transport := &mcp.IOTransport{Reader: stdin, Writer: noCloseWriter{Writer: stdout}}
 	if err := server.Run(ctx, transport); err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("run MCP server: %w", err)
@@ -94,6 +96,7 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 	apiURL := flags.String("api-url", "", "Baize API URL ending in /api/v1")
 	username := flags.String("username", "", "Baize username")
 	allowHTTP := flags.Bool("allow-http", false, "allow non-loopback HTTP for this profile")
+	workflowMode := flags.String("workflow-mode", profile.WorkflowModeMulti, "workflow mode: multi or single")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -101,6 +104,9 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 		return errors.New("login received unexpected positional arguments")
 	}
 	if err := profile.ValidateName(*profileName); err != nil {
+		return err
+	}
+	if err := profile.ValidateWorkflowMode(strings.TrimSpace(*workflowMode)); err != nil {
 		return err
 	}
 	if strings.TrimSpace(*apiURL) == "" || strings.TrimSpace(*username) == "" {
@@ -141,7 +147,7 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 	if err := credentials.Set(*profileName, token); err != nil {
 		return err
 	}
-	item := profile.Profile{APIURL: normalizedURL, AllowHTTP: *allowHTTP}
+	item := profile.Profile{APIURL: normalizedURL, AllowHTTP: *allowHTTP, WorkflowMode: strings.TrimSpace(*workflowMode)}
 	if err := profiles.Put(*profileName, item); err != nil {
 		if oldTokenErr == nil {
 			_ = credentials.Set(*profileName, oldToken)
@@ -151,6 +157,56 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 		return err
 	}
 	return writeJSON(stdout, map[string]any{"authenticated": true})
+}
+
+// runConfig 只维护本地 profile 的非秘密工作流偏好，不读取或打印地址、用户名和会话凭据。
+func runConfig(args []string, stdout, stderr io.Writer, profiles *profile.Store) error {
+	if len(args) == 0 {
+		return errors.New("config requires get or set")
+	}
+	switch args[0] {
+	case "get":
+		flags := flag.NewFlagSet("config get", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		profileName := flags.String("profile", defaultProfile, "local profile name")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("config get received unexpected positional arguments")
+		}
+		item, err := profiles.Get(*profileName)
+		if err != nil {
+			return err
+		}
+		return writeJSON(stdout, map[string]any{"workflowMode": item.EffectiveWorkflowMode()})
+	case "set":
+		flags := flag.NewFlagSet("config set", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		profileName := flags.String("profile", defaultProfile, "local profile name")
+		workflowMode := flags.String("workflow-mode", "", "workflow mode: multi or single")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("config set received unexpected positional arguments")
+		}
+		mode := strings.TrimSpace(*workflowMode)
+		if err := profile.ValidateWorkflowMode(mode); err != nil {
+			return err
+		}
+		item, err := profiles.Get(*profileName)
+		if err != nil {
+			return err
+		}
+		item.WorkflowMode = mode
+		if err := profiles.Put(*profileName, item); err != nil {
+			return err
+		}
+		return writeJSON(stdout, map[string]any{"workflowMode": item.EffectiveWorkflowMode()})
+	default:
+		return fmt.Errorf("unknown config action %q", args[0])
+	}
 }
 
 func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer, profiles *profile.Store, credentials credential.Store) error {
@@ -235,7 +291,7 @@ func writeJSON(w io.Writer, value any) error {
 }
 
 func printUsage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "Usage: baize-mcp <login|status|logout|serve|config-path|version>")
+	_, _ = fmt.Fprintln(w, "Usage: baize-mcp <login|status|logout|serve|config <get|set>|config-path|version>")
 }
 
 func fail(w io.Writer, err error) int {

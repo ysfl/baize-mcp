@@ -4,6 +4,20 @@
 
 This file records user-visible changes in published Baize MCP versions.
 
+## Unreleased
+
+### 中文
+
+- 增加按 profile 保存的 `multi` / `single` 工作流模式，旧配置和新登录默认使用多人模式。
+- 增加工作流状态与命令计划取消工具；模式只影响 AI 工作流偏好，白泽后端仍负责审批策略、权限和审计。
+- 普通账号无审批策略查看权限时，工作流状态仍返回本地模式并标记策略不可见；会话失效和服务异常继续显式失败。
+
+### English
+
+- Adds profile-scoped `multi` and `single` workflow modes; existing profiles and new sign-ins default to multi-user mode.
+- Adds workflow-status and command-plan cancellation tools. The mode changes AI workflow preference only; Baize still owns approval policy, permissions, and audit.
+- Keeps workflow status useful for accounts that cannot view approval policies by marking the policy summary as `not_visible`; invalid sessions and service failures still return errors.
+
 ## 0.1.3 - 2026-08-16
 
 ### 中文

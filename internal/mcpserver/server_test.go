@@ -19,6 +19,7 @@ type fakeClient struct {
 	agentID             string
 	templateListOptions baize.CommandTemplateListOptions
 	planID              string
+	cancelReason        string
 	taskID              string
 	approvalID          string
 	approvalOptions     baize.CommandPlanApprovalListOptions
@@ -26,6 +27,7 @@ type fakeClient struct {
 	checkErr            error
 	listErr             error
 	getErr              error
+	policyErr           error
 	writeErr            error
 }
 
@@ -51,6 +53,11 @@ func (f *lifecycleClient) PreviewCommandTemplate(ctx context.Context, options ba
 func (f *lifecycleClient) CreateCommandPlan(ctx context.Context, options baize.CommandPlanCreateOptions) (baize.PlanSummary, error) {
 	f.record("plan.create")
 	return f.fakeClient.CreateCommandPlan(ctx, options)
+}
+
+func (f *lifecycleClient) CancelCommandPlan(ctx context.Context, id, reason string) (baize.PlanSummary, error) {
+	f.record("plan.cancel")
+	return f.fakeClient.CancelCommandPlan(ctx, id, reason)
 }
 
 func (f *lifecycleClient) RequestCommandPlanApproval(ctx context.Context, options baize.CommandPlanApprovalCreateOptions) (baize.CommandPlanApproval, error) {
@@ -138,6 +145,15 @@ func (f *fakeClient) GetCommandPlan(_ context.Context, id string) (baize.PlanSum
 	return baize.PlanSummary{ID: id, Status: "ready"}, nil
 }
 
+func (f *fakeClient) CancelCommandPlan(_ context.Context, id, reason string) (baize.PlanSummary, error) {
+	if f.writeErr != nil {
+		return baize.PlanSummary{}, f.writeErr
+	}
+	f.planID = id
+	f.cancelReason = reason
+	return baize.PlanSummary{ID: id, Status: "cancelled"}, nil
+}
+
 func (f *fakeClient) RequestCommandPlanApproval(_ context.Context, options baize.CommandPlanApprovalCreateOptions) (baize.CommandPlanApproval, error) {
 	if f.writeErr != nil {
 		return baize.CommandPlanApproval{}, f.writeErr
@@ -175,6 +191,16 @@ func (f *fakeClient) DecideCommandPlanApproval(_ context.Context, id string, opt
 	return baize.CommandPlanApproval{ID: id, PlanID: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", RiskLevel: "critical", Status: status, DecisionMessage: options.DecisionMessage}, nil
 }
 
+func (f *fakeClient) ListCommandPlanApprovalPolicies(_ context.Context) ([]baize.CommandPlanApprovalPolicySummary, error) {
+	if f.policyErr != nil {
+		return nil, f.policyErr
+	}
+	return []baize.CommandPlanApprovalPolicySummary{
+		{RiskLevel: "high", Enabled: true, AllowSelfApproval: false},
+		{RiskLevel: "critical", Enabled: true, AllowSelfApproval: false},
+	}, nil
+}
+
 func (f *fakeClient) ExecuteCommandPlan(_ context.Context, id string, _ baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error) {
 	if f.writeErr != nil {
 		return baize.PlanExecutionSummary{}, f.writeErr
@@ -205,6 +231,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	clientSession := connectClient(t, ctx, fake)
 
 	wantNames := map[string]bool{
+		"baize_workflow_status":              false,
 		"baize_connection_status":            false,
 		"baize_agents_list":                  false,
 		"baize_agent_get":                    false,
@@ -212,6 +239,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_command_template_preview":     false,
 		"baize_command_plan_create":          false,
 		"baize_command_plan_get":             false,
+		"baize_command_plan_cancel":          false,
 		"baize_command_plan_approval_create": false,
 		"baize_command_plan_approvals_list":  false,
 		"baize_command_plan_approval_get":    false,
@@ -231,7 +259,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		if tool.Annotations == nil {
 			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get"
+		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get"
 		if readOnly {
 			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
@@ -261,6 +289,10 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	}
 	if !strings.Contains(status, `"connected":true`) || strings.Contains(status, "profile") {
 		t.Fatalf("unexpected connection result: %s", status)
+	}
+	workflow := callTool(t, ctx, clientSession, "baize_workflow_status", map[string]any{})
+	if !strings.Contains(workflow, `"workflowMode":"multi"`) || !strings.Contains(workflow, `"approvalPolicyAccess":"available"`) || !strings.Contains(workflow, `"auditControl":"server_managed"`) {
+		t.Fatalf("unexpected workflow status: %s", workflow)
 	}
 
 	const groupID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -298,6 +330,12 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	assertStructuredFieldsAbsent(t, plan, "renderedPreview", "parameters", "workDir", "operatorId", "operatorName", "command")
 	if !strings.Contains(plan, "ready") {
 		t.Fatalf("unexpected plan result: %s", plan)
+	}
+	cancelled := callTool(t, ctx, clientSession, "baize_command_plan_cancel", map[string]any{
+		"id": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "reason": "no longer needed",
+	})
+	if !strings.Contains(cancelled, "cancelled") || fake.cancelReason != "no longer needed" {
+		t.Fatalf("unexpected cancelled plan result: %s", cancelled)
 	}
 	approval := callTool(t, ctx, clientSession, "baize_command_plan_approval_create", map[string]any{
 		"planId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "reason": "critical maintenance approval",
@@ -379,6 +417,41 @@ func TestServerToolListStaysWithinContextBudget(t *testing.T) {
 	}
 }
 
+func TestServerWorkflowStatusHonorsSingleProfilePreference(t *testing.T) {
+	ctx := context.Background()
+	clientSession := connectClientWithOptions(t, ctx, &fakeClient{}, Options{WorkflowMode: "single"})
+	status := callTool(t, ctx, clientSession, "baize_workflow_status", map[string]any{})
+	if !strings.Contains(status, `"workflowMode":"single"`) {
+		t.Fatalf("workflow status did not preserve single mode: %s", status)
+	}
+	if !strings.Contains(status, `"allowSelfApproval":false`) {
+		t.Fatalf("workflow status omitted server policy: %s", status)
+	}
+}
+
+func TestServerWorkflowStatusKeepsLocalModeWhenPolicyIsNotVisible(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeClient{policyErr: &baize.APIError{StatusCode: 403}}
+	clientSession := connectClientWithOptions(t, ctx, fake, Options{WorkflowMode: "single"})
+	status := callTool(t, ctx, clientSession, "baize_workflow_status", map[string]any{})
+	if !strings.Contains(status, `"workflowMode":"single"`) {
+		t.Fatalf("workflow status lost local mode: %s", status)
+	}
+	if !strings.Contains(status, `"approvalPolicyAccess":"not_visible"`) || !strings.Contains(status, `"approvalPolicies":[]`) {
+		t.Fatalf("workflow status did not mark hidden policy: %s", status)
+	}
+}
+
+func TestServerWorkflowStatusStillReportsUnexpectedPolicyErrors(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeClient{policyErr: &baize.APIError{StatusCode: 500}}
+	clientSession := connectClientWithOptions(t, ctx, fake, Options{WorkflowMode: "multi"})
+	statusErr := callToolError(t, ctx, clientSession, "baize_workflow_status", map[string]any{})
+	if !strings.Contains(statusErr, "could not complete") {
+		t.Fatalf("unexpected workflow status error: %s", statusErr)
+	}
+}
+
 func assertToolSchemaProperties(t *testing.T, schema any, names []string) {
 	t.Helper()
 	raw, err := json.Marshal(schema)
@@ -434,8 +507,12 @@ func TestToolOutputEnforcesContextBudget(t *testing.T) {
 }
 
 func connectClient(t *testing.T, ctx context.Context, backend Client) *mcp.ClientSession {
+	return connectClientWithOptions(t, ctx, backend, Options{WorkflowMode: "multi"})
+}
+
+func connectClientWithOptions(t *testing.T, ctx context.Context, backend Client, options Options) *mcp.ClientSession {
 	t.Helper()
-	server := New(backend)
+	server := NewWithOptions(backend, options)
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
 	if err != nil {

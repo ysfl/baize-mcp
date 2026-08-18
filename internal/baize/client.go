@@ -36,6 +36,7 @@ const (
 	maxApprovalPageSize        = 50
 	maxApprovalItems           = 50
 	maxAgentPageItems          = 100
+	maxApprovalPolicies        = 10
 )
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -300,6 +301,14 @@ type CommandPlanApprovalPage struct {
 	NextPage int                   `json:"nextPage,omitempty"`
 }
 
+// CommandPlanApprovalPolicySummary 是审批策略的最小公开摘要。
+// 不向 MCP 暴露权限码、通知渠道或其它策略内部细节。
+type CommandPlanApprovalPolicySummary struct {
+	RiskLevel         string `json:"riskLevel"`
+	Enabled           bool   `json:"enabled"`
+	AllowSelfApproval bool   `json:"allowSelfApproval"`
+}
+
 type TaskTargetSummary struct {
 	ID         string     `json:"id"`
 	AgentID    string     `json:"agentId"`
@@ -425,6 +434,12 @@ type commandPlanApprovalRecord struct {
 	CreatedAt       *time.Time      `json:"createdAt"`
 	UpdatedAt       *time.Time      `json:"updatedAt"`
 	PlanSnapshot    json.RawMessage `json:"planSnapshot"`
+}
+
+type commandPlanApprovalPolicyRecord struct {
+	RiskLevel         string `json:"riskLevel"`
+	Enabled           bool   `json:"enabled"`
+	AllowSelfApproval bool   `json:"allowSelfApproval"`
 }
 
 type commandPlanApprovalSnapshotRecord struct {
@@ -790,6 +805,27 @@ func (c *Client) GetCommandPlan(ctx context.Context, id string) (PlanSummary, er
 	return summarizeCommandPlan(data), nil
 }
 
+// CancelCommandPlan 取消尚未转换为执行任务的命令计划，并返回更新后的计划摘要。
+func (c *Client) CancelCommandPlan(ctx context.Context, id, reason string) (PlanSummary, error) {
+	planID, err := validateUUID(id, "command plan ID")
+	if err != nil {
+		return PlanSummary{}, err
+	}
+	reason = strings.TrimSpace(reason)
+	if len(reason) > maxReasonLength {
+		return PlanSummary{}, newInputError(fmt.Sprintf("cancel reason must not exceed %d characters", maxReasonLength))
+	}
+	payload := map[string]any{}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+	var data commandPlanRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "command-plans", planID, "cancel"}, nil, payload, &data, true); err != nil {
+		return PlanSummary{}, err
+	}
+	return summarizeCommandPlan(data), nil
+}
+
 // RequestCommandPlanApproval 为 ready 计划创建服务端审批申请。
 func (c *Client) RequestCommandPlanApproval(ctx context.Context, options CommandPlanApprovalCreateOptions) (CommandPlanApproval, error) {
 	planID, err := validateUUID(options.PlanID, "command plan ID")
@@ -934,6 +970,28 @@ func (c *Client) DecideCommandPlanApproval(ctx context.Context, id string, optio
 		return CommandPlanApproval{}, err
 	}
 	return summarizeCommandPlanApproval(data), nil
+}
+
+// ListCommandPlanApprovalPolicies 返回当前账号可读取的审批策略最小摘要。
+func (c *Client) ListCommandPlanApprovalPolicies(ctx context.Context) ([]CommandPlanApprovalPolicySummary, error) {
+	var data struct {
+		Items []commandPlanApprovalPolicyRecord `json:"items"`
+	}
+	if err := c.do(ctx, http.MethodGet, []string{"ops", "command-plan-approval-policies"}, nil, nil, &data, true); err != nil {
+		return nil, err
+	}
+	items := make([]CommandPlanApprovalPolicySummary, 0, minInt(len(data.Items), maxApprovalPolicies))
+	for index, item := range data.Items {
+		if index >= maxApprovalPolicies {
+			break
+		}
+		items = append(items, CommandPlanApprovalPolicySummary{
+			RiskLevel:         trimPublicText(item.RiskLevel, maxTemplateFieldLength),
+			Enabled:           item.Enabled,
+			AllowSelfApproval: item.AllowSelfApproval,
+		})
+	}
+	return items, nil
 }
 
 func (c *Client) ExecuteCommandPlan(ctx context.Context, id string, options CommandPlanExecuteOptions) (PlanExecutionSummary, error) {
