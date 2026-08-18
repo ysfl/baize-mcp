@@ -70,10 +70,14 @@ After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/sk
 | `baize_command_plan_create` | Create a Baize-validated command plan without dispatching it |
 | `baize_command_plan_get` | Read command plan status, risk, and precheck information |
 | `baize_command_plan_execute` | Request plan execution; Baize handles permissions, confirmation, approval, and audit |
+| `baize_command_plan_approval_create` | Request approval for a command plan without executing it |
+| `baize_command_plan_approvals_list` | List visible command-plan approvals with pagination |
+| `baize_command_plan_approval_get` | Read one approval and its redacted plan snapshot |
+| `baize_command_plan_approval_decide` | Submit an approval or rejection decision for a command plan |
 | `baize_exec_task_get` | Read overall and per-agent remote task progress |
 | `baize_exec_task_cancel` | Request cancellation of a pending or running remote task |
 
-The candidate also adds command-plan approval tools: `baize_command_plan_approval_create`, `baize_command_plan_approvals_list`, `baize_command_plan_approval_get`, and `baize_command_plan_approval_decide`. They become stable only after the corresponding release is published; approval still requires the backend permission of the signed-in account and never executes a plan automatically.
+Command-plan approval tools were released in `v0.1.3`. Approval still requires the backend permission of the signed-in account and never executes a plan automatically.
 
 ### Next-release candidate (not in the stable release yet)
 
@@ -88,7 +92,7 @@ baize-mcp config set --profile default --workflow-mode single
 baize-mcp config get --profile default
 ```
 
-MCP does not provide a switch to disable Baize server audit. MCP has no independent remote audit store; Baize remains responsible for that audit.
+The current stable release does not provide a direct-execution flow that omits normal remote-operation records. Existing execution still follows Baize server account permissions, risk confirmation, approval, and operation-record rules. MCP has no independent remote audit store.
 
 ## Versions and Updates
 

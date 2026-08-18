@@ -70,10 +70,14 @@ baize-mcp login \
 | `baize_command_plan_create` | 创建经白泽校验的命令计划，不直接派发 |
 | `baize_command_plan_get` | 查询命令计划的状态、风险和预检结果 |
 | `baize_command_plan_execute` | 请求执行命令计划，由白泽处理权限、确认、审批和审计 |
+| `baize_command_plan_approval_create` | 为需要审批的命令计划申请审批，不执行计划 |
+| `baize_command_plan_approvals_list` | 分页查询当前账号可见的命令计划审批单 |
+| `baize_command_plan_approval_get` | 查询单个审批单及脱敏计划快照 |
+| `baize_command_plan_approval_decide` | 提交命令计划审批通过或驳回决策 |
 | `baize_exec_task_get` | 查询远程任务整体及目标进度 |
 | `baize_exec_task_cancel` | 请求取消等待中或运行中的远程任务 |
 
-候选版本还增加命令计划审批工具：`baize_command_plan_approval_create`、`baize_command_plan_approvals_list`、`baize_command_plan_approval_get` 和 `baize_command_plan_approval_decide`。这些工具只有在对应版本发布后才进入稳定支持；审批通过仍需当前账号具备后端权限，且不会自动执行计划。
+命令计划审批工具已在 `v0.1.3` 发布。审批通过仍需当前账号具备后端权限，且不会自动执行计划。
 
 ### 下一版本候选（尚未随稳定版本发布）
 
@@ -88,7 +92,7 @@ baize-mcp config set --profile default --workflow-mode single
 baize-mcp config get --profile default
 ```
 
-当前 MCP 不提供关闭白泽服务端审计的开关；它没有独立的远程审计存储，审计由白泽服务端负责。
+当前稳定版本尚未提供不生成常规远程操作记录的直执行流程；现有执行仍由白泽服务端按账号权限、风险确认、审批和操作记录规则处理。MCP 没有独立的远程审计存储。
 
 ## 版本与更新
 
