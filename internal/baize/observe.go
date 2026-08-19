@@ -401,7 +401,7 @@ func (c *Client) ObserveAgent(ctx context.Context, options AgentObserveOptions) 
 			limit = 10
 		}
 		if limit < 1 || limit > maxObserveProcessItems {
-			return AgentObserveResult{}, fmt.Errorf("process limit must be between 1 and %d", maxObserveProcessItems)
+			return AgentObserveResult{}, newInputError(fmt.Sprintf("process limit must be between 1 and %d", maxObserveProcessItems))
 		}
 		query := url.Values{"metric": {metric}, "from": {from.Format(time.RFC3339)}, "to": {to.Format(time.RFC3339)}, "limit": {fmt.Sprintf("%d", limit)}}
 		var data agentProcessesRecord

@@ -90,7 +90,7 @@ type agentObserveInput struct {
 	Metric  string     `json:"metric,omitempty" jsonschema:"optional process metric: cpu, memory, read_rate, write_rate, rx_rate, or tx_rate"`
 	From    *time.Time `json:"from,omitempty" jsonschema:"optional RFC3339 start time for processes view; defaults to the last 15 minutes"`
 	To      *time.Time `json:"to,omitempty" jsonschema:"optional RFC3339 end time for processes view; defaults to now"`
-	Limit   int        `json:"limit,omitempty" jsonschema:"optional process or storage result limit"`
+	Limit   int        `json:"limit,omitempty" jsonschema:"optional process result limit; storage and other views use their fixed safety bounds"`
 }
 
 type commandTemplatesListInput struct {
