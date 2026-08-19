@@ -28,6 +28,8 @@ type fakeClient struct {
 	overviewOptions     baize.OverviewOptions
 	observeOptions      baize.AgentObserveOptions
 	outputOptions       baize.ExecTaskOutputOptions
+	runtimeStartOptions baize.RuntimeDiagnosisStartOptions
+	runtimeDiagnosisID  string
 	checkErr            error
 	listErr             error
 	getErr              error
@@ -284,6 +286,27 @@ func (f *fakeClient) CancelExecTask(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *fakeClient) StartRuntimeDiagnosis(_ context.Context, options baize.RuntimeDiagnosisStartOptions) (baize.RuntimeDiagnosisSummary, error) {
+	if f.writeErr != nil {
+		return baize.RuntimeDiagnosisSummary{}, f.writeErr
+	}
+	f.runtimeStartOptions = options
+	f.runtimeDiagnosisID = "dddddddd-eeee-ffff-0000-111111111111"
+	return baize.RuntimeDiagnosisSummary{ID: f.runtimeDiagnosisID, AgentID: options.AgentID, TargetType: options.TargetType, TargetValue: options.TargetValue, Status: "running", Pushed: true, Summary: "probe running"}, nil
+}
+
+func (f *fakeClient) GetRuntimeDiagnosis(_ context.Context, id string) (baize.RuntimeDiagnosisDetail, error) {
+	if f.writeErr != nil {
+		return baize.RuntimeDiagnosisDetail{}, f.writeErr
+	}
+	f.runtimeDiagnosisID = id
+	return baize.RuntimeDiagnosisDetail{
+		RuntimeDiagnosisSummary: baize.RuntimeDiagnosisSummary{ID: id, AgentID: "11111111-2222-3333-4444-555555555555", Status: "resolved", Summary: "probe resolved", ResultMode: "bounded_summary", Notice: "missing detail does not mean the diagnosis failed"},
+		ProcessCount:            1, PortCount: 1, EvidenceCount: 2, DetailAvailable: true,
+		RecommendedTemplateIDs: []string{"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+	}, nil
+}
+
 func TestServerExposesReadAndWriteTools(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeClient{}
@@ -296,6 +319,8 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_agents_list":                  false,
 		"baize_agent_get":                    false,
 		"baize_agent_observe":                false,
+		"baize_runtime_diagnosis_start":      false,
+		"baize_runtime_diagnosis_get":        false,
 		"baize_command_templates_list":       false,
 		"baize_command_template_preview":     false,
 		"baize_command_plan_create":          false,
@@ -322,7 +347,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		if tool.Annotations == nil {
 			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_agent_observe" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get" || tool.Name == "baize_exec_task_output_get"
+		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_agent_observe" || tool.Name == "baize_runtime_diagnosis_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get" || tool.Name == "baize_exec_task_output_get"
 		if readOnly {
 			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
@@ -344,6 +369,9 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		}
 		if tool.Name == "baize_agent_observe" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"agentId", "view", "metric", "from", "to", "limit"})
+		}
+		if tool.Name == "baize_runtime_diagnosis_start" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"agentId", "targetType", "targetValue", "timeHint", "sourceModule", "timeoutSec", "maxResults"})
 		}
 		if tool.Name == "baize_exec_task_output_get" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"taskId", "targetId", "limit", "mode", "afterSeq", "beforeSeq", "targetLimit", "targetOffset"})
@@ -404,6 +432,20 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	if fake.observeOptions != (baize.AgentObserveOptions{AgentID: agentID, View: "health"}) || !strings.Contains(observed, "bounded_summary") || !strings.Contains(observed, "do not retry") {
 		t.Fatalf("unexpected agent observation: options=%#v result=%s", fake.observeOptions, observed)
 	}
+	diagnosis := callTool(t, ctx, clientSession, "baize_runtime_diagnosis_start", map[string]any{
+		"agentId": agentID, "targetType": "process_name", "targetValue": " nginx ", "timeHint": "incident-1", "sourceModule": "test", "timeoutSec": 3, "maxResults": 5,
+	})
+	if fake.runtimeStartOptions.TargetValue != "nginx" || fake.runtimeStartOptions.TargetType != "process_name" || !strings.Contains(diagnosis, "probe running") {
+		t.Fatalf("unexpected runtime diagnosis start: options=%#v result=%s", fake.runtimeStartOptions, diagnosis)
+	}
+	diagnosisDetail := callTool(t, ctx, clientSession, "baize_runtime_diagnosis_get", map[string]any{"id": fake.runtimeDiagnosisID})
+	if !strings.Contains(diagnosisDetail, "bounded_summary") || !strings.Contains(diagnosisDetail, "processCount") {
+		t.Fatalf("unexpected runtime diagnosis detail: %s", diagnosisDetail)
+	}
+	if !strings.Contains(diagnosisDetail, "missing detail does not mean") {
+		t.Fatalf("runtime diagnosis result did not explain bounded output: %s", diagnosisDetail)
+	}
+	assertStructuredFieldsAbsent(t, diagnosisDetail, "command", "cwd", "executable", "localAddress", "value", "environment")
 
 	templates := callTool(t, ctx, clientSession, "baize_command_templates_list", map[string]any{"pageSize": 10, "riskLevel": "low"})
 	if !strings.Contains(templates, "Restart service") {

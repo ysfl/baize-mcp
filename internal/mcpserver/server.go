@@ -40,6 +40,8 @@ type Client interface {
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
 	GetExecTaskOutput(context.Context, baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error)
 	CancelExecTask(context.Context, string) error
+	StartRuntimeDiagnosis(context.Context, baize.RuntimeDiagnosisStartOptions) (baize.RuntimeDiagnosisSummary, error)
+	GetRuntimeDiagnosis(context.Context, string) (baize.RuntimeDiagnosisDetail, error)
 }
 
 type emptyInput struct{}
@@ -193,6 +195,20 @@ type execTaskCancelInput struct {
 	ID string `json:"id" jsonschema:"Baize execution task UUID"`
 }
 
+type runtimeDiagnosisStartInput struct {
+	AgentID      string `json:"agentId" jsonschema:"Baize agent UUID"`
+	TargetType   string `json:"targetType" jsonschema:"read-only diagnosis target: pid, port, process_name, file, service, or container"`
+	TargetValue  string `json:"targetValue" jsonschema:"target value validated by Baize; do not provide a shell command"`
+	TimeHint     string `json:"timeHint,omitempty" jsonschema:"optional time or incident hint; this does not execute a command"`
+	SourceModule string `json:"sourceModule,omitempty" jsonschema:"optional caller label"`
+	TimeoutSec   int    `json:"timeoutSec,omitempty" jsonschema:"optional timeout from 1 to 10 seconds"`
+	MaxResults   int    `json:"maxResults,omitempty" jsonschema:"optional result limit from 1 to 50"`
+}
+
+type runtimeDiagnosisGetInput struct {
+	ID string `json:"id" jsonschema:"Baize runtime diagnosis UUID"`
+}
+
 func New(client Client) *mcp.Server {
 	return NewWithOptions(client, Options{WorkflowMode: profile.WorkflowModeMulti})
 }
@@ -294,6 +310,28 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 		result, err := client.ObserveAgent(ctx, baize.AgentObserveOptions{
 			AgentID: strings.TrimSpace(input.AgentID), View: strings.TrimSpace(input.View), Metric: strings.TrimSpace(input.Metric), From: input.From, To: input.To, Limit: input.Limit,
 		})
+		return toolOutput(result, err, "read")
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_runtime_diagnosis_start",
+		"Start a Baize runtime diagnosis",
+		"Creates a bounded, read-only runtime diagnosis probe for one agent. Baize validates the target, checks the signed-in account and agent capability, records the diagnosis, and keeps command execution and approvals separate.",
+		false,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input runtimeDiagnosisStartInput) (*mcp.CallToolResult, baize.RuntimeDiagnosisSummary, error) {
+		result, err := client.StartRuntimeDiagnosis(ctx, baize.RuntimeDiagnosisStartOptions{
+			AgentID: strings.TrimSpace(input.AgentID), TargetType: strings.TrimSpace(input.TargetType), TargetValue: strings.TrimSpace(input.TargetValue),
+			TimeHint: strings.TrimSpace(input.TimeHint), SourceModule: strings.TrimSpace(input.SourceModule), TimeoutSec: input.TimeoutSec, MaxResults: input.MaxResults,
+		})
+		return toolOutput(result, err, "write")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_runtime_diagnosis_get",
+		"Get a Baize runtime diagnosis",
+		"Returns a bounded diagnosis status and evidence counts for one previously started probe. Process commands, paths, port addresses, evidence values, credentials, and raw Agent output are excluded; missing detail is not evidence that the diagnosis failed.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input runtimeDiagnosisGetInput) (*mcp.CallToolResult, baize.RuntimeDiagnosisDetail, error) {
+		result, err := client.GetRuntimeDiagnosis(ctx, strings.TrimSpace(input.ID))
 		return toolOutput(result, err, "read")
 	})
 
