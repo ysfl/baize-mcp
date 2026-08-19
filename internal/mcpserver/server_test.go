@@ -26,6 +26,8 @@ type fakeClient struct {
 	approvalDecision    baize.CommandPlanApprovalDecisionOptions
 	directOptions       baize.DirectExecTaskOptions
 	overviewOptions     baize.OverviewOptions
+	observeOptions      baize.AgentObserveOptions
+	outputOptions       baize.ExecTaskOutputOptions
 	checkErr            error
 	listErr             error
 	getErr              error
@@ -88,6 +90,11 @@ func (f *lifecycleClient) GetExecTask(ctx context.Context, id string) (baize.Tas
 	return f.fakeClient.GetExecTask(ctx, id)
 }
 
+func (f *lifecycleClient) GetExecTaskOutput(ctx context.Context, options baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error) {
+	f.record("task.output")
+	return f.fakeClient.GetExecTaskOutput(ctx, options)
+}
+
 func (f *lifecycleClient) CancelExecTask(ctx context.Context, id string) error {
 	f.record("task.cancel")
 	return f.fakeClient.CancelExecTask(ctx, id)
@@ -135,6 +142,18 @@ func (f *fakeClient) GetAgent(_ context.Context, id string) (baize.AgentSummary,
 	return baize.AgentSummary{
 		ID: id, DisplayName: "Web 01", Status: "online", OperatingSystem: "linux Ubuntu 24.04",
 		Architecture: "amd64", AgentVersion: "0.2.1", LastHeartbeatAt: &heartbeat,
+	}, nil
+}
+
+func (f *fakeClient) ObserveAgent(_ context.Context, options baize.AgentObserveOptions) (baize.AgentObserveResult, error) {
+	if f.getErr != nil {
+		return baize.AgentObserveResult{}, f.getErr
+	}
+	f.observeOptions = options
+	return baize.AgentObserveResult{
+		AgentID: options.AgentID, View: options.View, ResultMode: "bounded_summary", SensitiveContentExcluded: true,
+		RedactionPolicy: "conservative_patterns_only", Notice: "bounded summary; do not retry the same request",
+		Health: &baize.AgentHealthObservation{DisplayName: "Web 01", Status: "online"},
 	}, nil
 }
 
@@ -249,6 +268,14 @@ func (f *fakeClient) GetExecTask(_ context.Context, id string) (baize.TaskSummar
 	return baize.TaskSummary{ID: id, Status: "pending"}, nil
 }
 
+func (f *fakeClient) GetExecTaskOutput(_ context.Context, options baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error) {
+	if f.writeErr != nil {
+		return baize.ExecTaskOutputSummary{}, f.writeErr
+	}
+	f.outputOptions = options
+	return baize.ExecTaskOutputSummary{TaskID: options.TaskID, ResultMode: "on_demand_bounded_output", Notice: "bounded output; do not retry the same request"}, nil
+}
+
 func (f *fakeClient) CancelExecTask(_ context.Context, id string) error {
 	if f.writeErr != nil {
 		return f.writeErr
@@ -268,6 +295,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_connection_status":            false,
 		"baize_agents_list":                  false,
 		"baize_agent_get":                    false,
+		"baize_agent_observe":                false,
 		"baize_command_templates_list":       false,
 		"baize_command_template_preview":     false,
 		"baize_command_plan_create":          false,
@@ -280,6 +308,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_command_plan_execute":         false,
 		"baize_exec_task_direct":             false,
 		"baize_exec_task_get":                false,
+		"baize_exec_task_output_get":         false,
 		"baize_exec_task_cancel":             false,
 	}
 	for tool, err := range clientSession.Tools(ctx, nil) {
@@ -293,7 +322,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		if tool.Annotations == nil {
 			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get"
+		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_agent_observe" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get" || tool.Name == "baize_exec_task_output_get"
 		if readOnly {
 			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
@@ -312,6 +341,12 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		}
 		if tool.Name == "baize_overview_get" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"groupId", "limit"})
+		}
+		if tool.Name == "baize_agent_observe" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"agentId", "view", "metric", "from", "to", "limit"})
+		}
+		if tool.Name == "baize_exec_task_output_get" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"taskId", "targetId", "limit", "mode", "afterSeq", "beforeSeq", "targetLimit", "targetOffset"})
 		}
 	}
 	for name, found := range wantNames {
@@ -365,6 +400,10 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		t.Fatalf("GetAgent() id = %q", fake.agentID)
 	}
 	assertNoPrivateFields(t, detail)
+	observed := callTool(t, ctx, clientSession, "baize_agent_observe", map[string]any{"agentId": agentID, "view": "health"})
+	if fake.observeOptions != (baize.AgentObserveOptions{AgentID: agentID, View: "health"}) || !strings.Contains(observed, "bounded_summary") || !strings.Contains(observed, "do not retry") {
+		t.Fatalf("unexpected agent observation: options=%#v result=%s", fake.observeOptions, observed)
+	}
 
 	templates := callTool(t, ctx, clientSession, "baize_command_templates_list", map[string]any{"pageSize": 10, "riskLevel": "low"})
 	if !strings.Contains(templates, "Restart service") {
@@ -408,6 +447,10 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		t.Fatalf("unexpected execute result: %s", executed)
 	}
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
+	output := callTool(t, ctx, clientSession, "baize_exec_task_output_get", map[string]any{"taskId": "cccccccc-dddd-eeee-ffff-000000000000", "limit": 10, "mode": "tail"})
+	if fake.outputOptions.TaskID != "cccccccc-dddd-eeee-ffff-000000000000" || fake.outputOptions.Limit != 10 || fake.outputOptions.Mode != "tail" || !strings.Contains(output, "on_demand_bounded_output") {
+		t.Fatalf("unexpected task output request/result: options=%#v result=%s", fake.outputOptions, output)
+	}
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_cancel", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_direct", map[string]any{
 		"command": "systemctl restart nginx", "title": "Restart nginx", "targetAgentIds": []string{"11111111-2222-3333-4444-555555555555"}, "confirmRisk": true,
@@ -441,9 +484,10 @@ func TestServerWriteLifecycleRequiresPreviewApprovalBeforeExecution(t *testing.T
 	})
 	_ = callTool(t, ctx, clientSession, "baize_command_plan_execute", map[string]any{"id": planID, "confirmRisk": true})
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": taskID})
+	_ = callTool(t, ctx, clientSession, "baize_exec_task_output_get", map[string]any{"taskId": taskID})
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_cancel", map[string]any{"id": taskID})
 
-	want := []string{"templates.list", "template.preview", "plan.create", "approval.create", "approval.decide", "plan.execute", "task.get", "task.cancel"}
+	want := []string{"templates.list", "template.preview", "plan.create", "approval.create", "approval.decide", "plan.execute", "task.get", "task.output", "task.cancel"}
 	if !reflect.DeepEqual(backend.events, want) {
 		t.Fatalf("write lifecycle events = %#v, want %#v", backend.events, want)
 	}

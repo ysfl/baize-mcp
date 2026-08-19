@@ -85,6 +85,8 @@ baize-mcp login \
 - `baize_overview_get`：读取当前账号可见范围内的平台运行摘要和有限数量的重点异常节点。资源缓存缺失、异常列表为空或分区请求失败会通过结果字段明确标记，AI 不应把空列表当作绝对健康；工具不返回地址、凭据或后端排序权重。
 - `baize_workflow_status`：读取本机 profile 的工作流模式和白泽服务端审批策略摘要；当前账号没有策略查看权限时仍返回本地模式，并将 `approvalPolicyAccess` 标记为 `not_visible`。
 - `baize_command_plan_cancel`：取消尚未执行的命令计划。
+- `baize_agent_observe`：读取单个节点的健康、指标、进程、存储、Docker、Nginx、主机画像状态和控制面等有界观察摘要；敏感正文、凭据、环境变量和完整历史不会返回。
+- `baize_exec_task_output_get`：在用户明确要求后按目标、游标和页窗口读取有限任务输出；结果会明确说明摘要、截断和保守替换状态，未返回内容不代表任务失败，也不应因此重复提交任务。
 - profile 支持 `multi`（默认）和 `single`。单人模式只改变工作流偏好；是否允许自审批、是否需要审批以及审计仍由白泽服务端策略决定。
 
 可以在本机 profile 中切换模式：

@@ -22,6 +22,7 @@ const maxToolOutputBytes = 64 << 10
 type Client interface {
 	CheckSession(context.Context) error
 	GetOverview(context.Context, baize.OverviewOptions) (baize.OverviewSummary, error)
+	ObserveAgent(context.Context, baize.AgentObserveOptions) (baize.AgentObserveResult, error)
 	ListAgents(context.Context, baize.AgentListOptions) (baize.AgentPage, error)
 	GetAgent(context.Context, string) (baize.AgentSummary, error)
 	ListCommandTemplates(context.Context, baize.CommandTemplateListOptions) (baize.CommandTemplatePage, error)
@@ -37,6 +38,7 @@ type Client interface {
 	ExecuteCommandPlan(context.Context, string, baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error)
 	DirectExecTask(context.Context, baize.DirectExecTaskOptions) (baize.TaskSummary, error)
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
+	GetExecTaskOutput(context.Context, baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error)
 	CancelExecTask(context.Context, string) error
 }
 
@@ -80,6 +82,15 @@ type agentsListInput struct {
 
 type agentGetInput struct {
 	ID string `json:"id" jsonschema:"Baize agent UUID"`
+}
+
+type agentObserveInput struct {
+	AgentID string     `json:"agentId" jsonschema:"Baize agent UUID"`
+	View    string     `json:"view" jsonschema:"observation view: health, metrics, processes, storage, docker, nginx, host_profile, or control_plane"`
+	Metric  string     `json:"metric,omitempty" jsonschema:"optional process metric: cpu, memory, read_rate, write_rate, rx_rate, or tx_rate"`
+	From    *time.Time `json:"from,omitempty" jsonschema:"optional RFC3339 start time for processes view; defaults to the last 15 minutes"`
+	To      *time.Time `json:"to,omitempty" jsonschema:"optional RFC3339 end time for processes view; defaults to now"`
+	Limit   int        `json:"limit,omitempty" jsonschema:"optional process or storage result limit"`
 }
 
 type commandTemplatesListInput struct {
@@ -165,6 +176,17 @@ type directExecTaskInput struct {
 
 type execTaskGetInput struct {
 	ID string `json:"id" jsonschema:"Baize execution task UUID"`
+}
+
+type execTaskOutputInput struct {
+	TaskID       string `json:"taskId" jsonschema:"Baize execution task UUID"`
+	TargetID     string `json:"targetId,omitempty" jsonschema:"optional execution target UUID"`
+	Limit        int    `json:"limit,omitempty" jsonschema:"optional output records per target, from 1 to 200; defaults to 50"`
+	Mode         string `json:"mode,omitempty" jsonschema:"optional output mode: tail or page; defaults to tail"`
+	AfterSeq     *int   `json:"afterSeq,omitempty" jsonschema:"optional continue after this output sequence"`
+	BeforeSeq    *int   `json:"beforeSeq,omitempty" jsonschema:"optional read before this output sequence"`
+	TargetLimit  int    `json:"targetLimit,omitempty" jsonschema:"optional number of targets, maximum 20"`
+	TargetOffset int    `json:"targetOffset,omitempty" jsonschema:"optional target offset for multi-target tasks"`
 }
 
 type execTaskCancelInput struct {
@@ -262,6 +284,17 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input agentGetInput) (*mcp.CallToolResult, baize.AgentSummary, error) {
 		item, err := client.GetAgent(ctx, input.ID)
 		return toolOutput(item, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_agent_observe",
+		"Observe a Baize agent",
+		"Reads one explicit, bounded observation view for an agent. Results identify excluded or redacted content and do not expose credentials, environment values, host-profile contents, or raw terminal data.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input agentObserveInput) (*mcp.CallToolResult, baize.AgentObserveResult, error) {
+		result, err := client.ObserveAgent(ctx, baize.AgentObserveOptions{
+			AgentID: strings.TrimSpace(input.AgentID), View: strings.TrimSpace(input.View), Metric: strings.TrimSpace(input.Metric), From: input.From, To: input.To, Limit: input.Limit,
+		})
+		return toolOutput(result, err, "read")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -409,6 +442,18 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskGetInput) (*mcp.CallToolResult, baize.TaskSummary, error) {
 		task, err := client.GetExecTask(ctx, input.ID)
 		return toolOutput(task, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_exec_task_output_get",
+		"Read Baize execution output",
+		"Reads bounded output only after the user explicitly asks for task output. The result identifies truncation and conservative pattern redaction; it never returns task commands, environment values, credentials, or a complete unbounded terminal stream.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskOutputInput) (*mcp.CallToolResult, baize.ExecTaskOutputSummary, error) {
+		output, err := client.GetExecTaskOutput(ctx, baize.ExecTaskOutputOptions{
+			TaskID: strings.TrimSpace(input.TaskID), TargetID: strings.TrimSpace(input.TargetID), Limit: input.Limit, Mode: strings.TrimSpace(input.Mode),
+			AfterSeq: input.AfterSeq, BeforeSeq: input.BeforeSeq, TargetLimit: input.TargetLimit, TargetOffset: input.TargetOffset,
+		})
+		return toolOutput(output, err, "read")
 	})
 
 	mcp.AddTool(server, writeTool(

@@ -85,6 +85,8 @@ Command-plan approval tools were released in `v0.1.3`. Approval still requires t
 - `baize_overview_get`: reads the account-scoped runtime summary and a bounded set of highlighted abnormal nodes. Missing resource caches, an empty abnormal list, and failed sections are marked in the result so an AI must not treat an empty list as proof of health; addresses, credentials, and backend ranking weights are excluded.
 - `baize_workflow_status`: reads the local profile workflow mode and a minimal summary of the Baize server approval policies; if the signed-in account cannot view policies, it still returns the local mode and marks `approvalPolicyAccess` as `not_visible`.
 - `baize_command_plan_cancel`: cancels a command plan that has not been executed.
+- `baize_agent_observe`: reads one bounded observation view for an agent, including health, metrics, processes, storage, Docker, Nginx, host-profile status, and control-plane status. Sensitive bodies, credentials, environment values, and complete histories are excluded.
+- `baize_exec_task_output_get`: reads bounded task output by target, cursor, and page window after the user explicitly asks for it. The result states whether it is summarized, truncated, or conservatively redacted; missing output does not mean the task failed and must not trigger a duplicate task submission.
 - Profiles support `multi` (the default) and `single`. Single-user mode changes the workflow preference only; Baize still decides whether self-approval, approval, or audit is required.
 
 Switch the mode in the local profile:

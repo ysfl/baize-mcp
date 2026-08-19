@@ -14,6 +14,8 @@ This file records user-visible changes in published Baize MCP versions.
 - 增加工作流状态与命令计划取消工具；模式只影响 AI 工作流偏好，白泽后端仍负责审批策略、权限和审计。
 - 普通账号无审批策略查看权限时，工作流状态仍返回本地模式并标记策略不可见；会话失效和服务异常继续显式失败。
 - 审批策略摘要只保留公开风险等级枚举，未知值不会进入 AI 结果。
+- 未发布候选增加节点有界观察工具，支持健康、指标、进程、存储、Docker、Nginx、主机画像状态和控制面状态查询，并明确排除敏感正文。
+- 未发布候选增加按需读取远程任务输出的工具，支持目标窗口和游标；结果明确标记摘要、截断和保守替换，避免 AI 因未返回内容重复提交任务。
 
 ### English
 
@@ -23,6 +25,8 @@ This file records user-visible changes in published Baize MCP versions.
 - Adds workflow-status and command-plan cancellation tools. The mode changes AI workflow preference only; Baize still owns approval policy, permissions, and audit.
 - Keeps workflow status useful for accounts that cannot view approval policies by marking the policy summary as `not_visible`; invalid sessions and service failures still return errors.
 - Keeps only the published risk-level enum in approval-policy summaries; unknown values are omitted from AI results.
+- Adds an unreleased bounded agent-observation candidate for health, metrics, processes, storage, Docker, Nginx, host-profile status, and control-plane status, while excluding sensitive bodies.
+- Adds an unreleased on-demand task-output candidate with target windows and cursors. Results state summary, truncation, and conservative redaction so missing output is not mistaken for task failure or used to trigger duplicate submissions.
 
 ## 0.1.3 - 2026-08-16
 
