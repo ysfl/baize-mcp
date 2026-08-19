@@ -90,3 +90,53 @@ func TestRuntimeDiagnosisRejectsUnboundedOrUnsupportedInput(t *testing.T) {
 		t.Fatal("GetRuntimeDiagnosis accepted a path traversal value")
 	}
 }
+
+func TestRuntimeDiagnosisAIContextUsesFixedEndpointAndExcludesSensitiveDetail(t *testing.T) {
+	const (
+		agentID     = "11111111-2222-3333-4444-555555555555"
+		diagnosisID = "dddddddd-eeee-ffff-0000-111111111111"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/runtime-diagnoses/"+diagnosisID+"/ai-context" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":{"status":"ready","message":"context ready","modelProvider":{"provider":"http_json","model":"model-a","status":"ready","message":"private provider detail","endpointConfigured":true,"apiKeyConfigured":true,"endpoint":"https://private.example/api","apiKey":"model-secret"},"context":{"contextVersion":"runtime-diagnosis.v1","requestId":"private-request","requestedBy":"private-operator","sourceModule":"private-source","agentScope":{"agentId":"` + agentID + `","hostname":"web-01","groupId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","groupName":"private-group","platform":"linux","managementLevel":"managed","capabilities":["runtime_diagnosis"]},"diagnosis":{"id":"` + diagnosisID + `","agentId":"` + agentID + `","targetType":"pid","targetValue":"/srv/private","status":"resolved","summary":"password=secret-value","processes":[{"pid":1234,"command":"curl -H Authorization: Bearer secret","cwd":"/srv/private","executable":"/usr/bin/curl"}],"ports":[{"localAddress":"0.0.0.0","localPort":443}],"riskFindings":[{"code":"public_listener","severity":"high","message":"authorization=secret-risk","evidenceRefs":["evidence-private"]}],"evidences":[{"key":"command","source":"agent","value":"secret-evidence"}],"recommendedTemplateIds":["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],"truncated":false},"riskFindings":[{"code":"public_listener","severity":"high","message":"token=secret-risk","evidenceRefs":["evidence-private"]}],"availableTemplates":[{"templateId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","templateName":"Inspect service","description":"token=template-secret","category":"maintenance","version":1,"platform":"linux","riskLevel":"read_only","renderMode":"shell","requiredCapabilities":["runtime_diagnosis"],"parameterSchema":[{"name":"service","type":"service_name","required":true,"default":"private-default"}],"requiresHumanReview":false,"command":"do-not-expose"}],"executionPolicy":{"canCreateCommandPlan":true,"canDispatchExecTask":false,"canApproveHighRisk":false,"requiresApprovalForCritical":true},"redactionPolicy":{"version":"runtime-diagnosis-redaction.v1","summary":"server redaction applied"},"auditRefs":[{"kind":"operation_audit","id":"private-audit","note":"private operator"}]}}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "session-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	result, err := client.GetRuntimeDiagnosisAIContext(context.Background(), strings.ToUpper(diagnosisID))
+	if err != nil {
+		t.Fatalf("GetRuntimeDiagnosisAIContext() error = %v", err)
+	}
+	if result.Status != "ready" || result.Context == nil || !result.RedactionApplied || result.Context.Diagnosis.ProcessCount != 1 {
+		t.Fatalf("unexpected AI context result: %#v", result)
+	}
+	if result.Context.Diagnosis.Summary != "password=******" || len(result.Context.RiskFindings) != 1 || result.Context.RiskFindings[0].Message != "token=******" {
+		t.Fatalf("AI context did not report conservative redaction: %#v", result)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal AI context: %v", err)
+	}
+	for _, forbidden := range []string{"private-request", "private-operator", "private-source", "private-group", "/srv/private", "/usr/bin/curl", "0.0.0.0", "secret-evidence", "evidence-private", "private-audit", "private provider detail", "private.example", "model-secret", "private-default", "do-not-expose"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("bounded AI context contains %q: %s", forbidden, raw)
+		}
+	}
+}
+
+func TestRuntimeDiagnosisAIContextRejectsInvalidID(t *testing.T) {
+	client, err := NewClient("https://baize.example.com/api/v1", "session-token", false, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if _, err := client.GetRuntimeDiagnosisAIContext(context.Background(), "../auth/profile"); err == nil {
+		t.Fatal("GetRuntimeDiagnosisAIContext accepted a path traversal value")
+	}
+}

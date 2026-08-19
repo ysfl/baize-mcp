@@ -42,6 +42,7 @@ type Client interface {
 	CancelExecTask(context.Context, string) error
 	StartRuntimeDiagnosis(context.Context, baize.RuntimeDiagnosisStartOptions) (baize.RuntimeDiagnosisSummary, error)
 	GetRuntimeDiagnosis(context.Context, string) (baize.RuntimeDiagnosisDetail, error)
+	GetRuntimeDiagnosisAIContext(context.Context, string) (baize.RuntimeDiagnosisAIContext, error)
 }
 
 type emptyInput struct{}
@@ -209,6 +210,10 @@ type runtimeDiagnosisGetInput struct {
 	ID string `json:"id" jsonschema:"Baize runtime diagnosis UUID"`
 }
 
+type runtimeDiagnosisAIContextGetInput struct {
+	ID string `json:"id" jsonschema:"Baize runtime diagnosis UUID"`
+}
+
 func New(client Client) *mcp.Server {
 	return NewWithOptions(client, Options{WorkflowMode: profile.WorkflowModeMulti})
 }
@@ -332,6 +337,15 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 		"Returns a bounded diagnosis status and evidence counts for one previously started probe. Process commands, paths, port addresses, evidence values, credentials, and raw Agent output are excluded; missing detail is not evidence that the diagnosis failed.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input runtimeDiagnosisGetInput) (*mcp.CallToolResult, baize.RuntimeDiagnosisDetail, error) {
 		result, err := client.GetRuntimeDiagnosis(ctx, strings.TrimSpace(input.ID))
+		return toolOutput(result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_runtime_diagnosis_ai_context_get",
+		"Get bounded diagnosis AI context",
+		"Reads the privacy-reduced AI context for one diagnosis when the signed-in account and Baize settings allow it. Commands, paths, evidence values, operator identity, audit references, credentials, and model endpoints are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input runtimeDiagnosisAIContextGetInput) (*mcp.CallToolResult, baize.RuntimeDiagnosisAIContext, error) {
+		result, err := client.GetRuntimeDiagnosisAIContext(ctx, strings.TrimSpace(input.ID))
 		return toolOutput(result, err, "read")
 	})
 

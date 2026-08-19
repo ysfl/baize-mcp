@@ -30,6 +30,7 @@ type fakeClient struct {
 	outputOptions       baize.ExecTaskOutputOptions
 	runtimeStartOptions baize.RuntimeDiagnosisStartOptions
 	runtimeDiagnosisID  string
+	runtimeAIContextID  string
 	checkErr            error
 	listErr             error
 	getErr              error
@@ -307,34 +308,48 @@ func (f *fakeClient) GetRuntimeDiagnosis(_ context.Context, id string) (baize.Ru
 	}, nil
 }
 
+func (f *fakeClient) GetRuntimeDiagnosisAIContext(_ context.Context, id string) (baize.RuntimeDiagnosisAIContext, error) {
+	if f.writeErr != nil {
+		return baize.RuntimeDiagnosisAIContext{}, f.writeErr
+	}
+	f.runtimeAIContextID = id
+	return baize.RuntimeDiagnosisAIContext{
+		Status: "ready", ResultMode: "on_demand_bounded_ai_context", SensitiveContentExcluded: true,
+		Context: &baize.RuntimeDiagnosisAIContextView{
+			Diagnosis: baize.RuntimeDiagnosisAIContextDiagnosis{ID: id, Status: "resolved", ProcessCount: 1},
+		},
+	}, nil
+}
+
 func TestServerExposesReadAndWriteTools(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeClient{}
 	clientSession := connectClient(t, ctx, fake)
 
 	wantNames := map[string]bool{
-		"baize_overview_get":                 false,
-		"baize_workflow_status":              false,
-		"baize_connection_status":            false,
-		"baize_agents_list":                  false,
-		"baize_agent_get":                    false,
-		"baize_agent_observe":                false,
-		"baize_runtime_diagnosis_start":      false,
-		"baize_runtime_diagnosis_get":        false,
-		"baize_command_templates_list":       false,
-		"baize_command_template_preview":     false,
-		"baize_command_plan_create":          false,
-		"baize_command_plan_get":             false,
-		"baize_command_plan_cancel":          false,
-		"baize_command_plan_approval_create": false,
-		"baize_command_plan_approvals_list":  false,
-		"baize_command_plan_approval_get":    false,
-		"baize_command_plan_approval_decide": false,
-		"baize_command_plan_execute":         false,
-		"baize_exec_task_direct":             false,
-		"baize_exec_task_get":                false,
-		"baize_exec_task_output_get":         false,
-		"baize_exec_task_cancel":             false,
+		"baize_overview_get":                     false,
+		"baize_workflow_status":                  false,
+		"baize_connection_status":                false,
+		"baize_agents_list":                      false,
+		"baize_agent_get":                        false,
+		"baize_agent_observe":                    false,
+		"baize_runtime_diagnosis_start":          false,
+		"baize_runtime_diagnosis_get":            false,
+		"baize_runtime_diagnosis_ai_context_get": false,
+		"baize_command_templates_list":           false,
+		"baize_command_template_preview":         false,
+		"baize_command_plan_create":              false,
+		"baize_command_plan_get":                 false,
+		"baize_command_plan_cancel":              false,
+		"baize_command_plan_approval_create":     false,
+		"baize_command_plan_approvals_list":      false,
+		"baize_command_plan_approval_get":        false,
+		"baize_command_plan_approval_decide":     false,
+		"baize_command_plan_execute":             false,
+		"baize_exec_task_direct":                 false,
+		"baize_exec_task_get":                    false,
+		"baize_exec_task_output_get":             false,
+		"baize_exec_task_cancel":                 false,
 	}
 	for tool, err := range clientSession.Tools(ctx, nil) {
 		if err != nil {
@@ -347,7 +362,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		if tool.Annotations == nil {
 			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_agent_observe" || tool.Name == "baize_runtime_diagnosis_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get" || tool.Name == "baize_exec_task_output_get"
+		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_agent_observe" || tool.Name == "baize_runtime_diagnosis_get" || tool.Name == "baize_runtime_diagnosis_ai_context_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get" || tool.Name == "baize_exec_task_output_get"
 		if readOnly {
 			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
@@ -446,6 +461,11 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		t.Fatalf("runtime diagnosis result did not explain bounded output: %s", diagnosisDetail)
 	}
 	assertStructuredFieldsAbsent(t, diagnosisDetail, "command", "cwd", "executable", "localAddress", "value", "environment")
+	aiContext := callTool(t, ctx, clientSession, "baize_runtime_diagnosis_ai_context_get", map[string]any{"id": fake.runtimeDiagnosisID})
+	if fake.runtimeAIContextID != fake.runtimeDiagnosisID || !strings.Contains(aiContext, `"resultMode":"on_demand_bounded_ai_context"`) {
+		t.Fatalf("unexpected AI context result: id=%q result=%s", fake.runtimeAIContextID, aiContext)
+	}
+	assertStructuredFieldsAbsent(t, aiContext, "requestId", "requestedBy", "auditRefs", "command", "cwd", "evidences")
 
 	templates := callTool(t, ctx, clientSession, "baize_command_templates_list", map[string]any{"pageSize": 10, "riskLevel": "low"})
 	if !strings.Contains(templates, "Restart service") {
