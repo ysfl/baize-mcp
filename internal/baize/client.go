@@ -33,6 +33,7 @@ const (
 	maxTemplateCapabilities    = 32
 	maxPrecheckItems           = 50
 	maxTaskTargets             = 50
+	maxDirectCommandLength     = 4096
 	maxApprovalPageSize        = 50
 	maxApprovalItems           = 50
 	maxAgentPageItems          = 100
@@ -226,6 +227,21 @@ type CommandPlanExecuteOptions struct {
 	ConfirmRisk    bool
 	ConfirmMessage string
 	DebugSessionID string
+}
+
+// DirectExecTaskOptions 描述服务端直接执行入口的最小请求。
+// 白名单、权限、风险审计开关和安全裁决全部由白泽服务端处理。
+type DirectExecTaskOptions struct {
+	TemplateID     string
+	Command        string
+	Title          string
+	WorkDir        string
+	TimeoutSec     int
+	AutoDispatch   *bool
+	ConfirmRisk    bool
+	ConfirmMessage string
+	Parameters     map[string]any
+	TargetAgentIDs []string
 }
 
 // CommandPlanApprovalCreateOptions 是命令计划审批申请参数。
@@ -1025,6 +1041,72 @@ func (c *Client) ExecuteCommandPlan(ctx context.Context, id string, options Comm
 		return PlanExecutionSummary{}, err
 	}
 	return PlanExecutionSummary{Plan: summarizeCommandPlan(data.Plan), Task: summarizeExecTask(data.Task)}, nil
+}
+
+// DirectExecTask 通过服务端专用权限创建唯一可追踪任务；MCP 不在本地判断白名单或审计策略。
+func (c *Client) DirectExecTask(ctx context.Context, options DirectExecTaskOptions) (TaskSummary, error) {
+	agentIDs, err := validateUUIDList(options.TargetAgentIDs, maxCommandTargets, "target agent IDs")
+	if err != nil {
+		return TaskSummary{}, err
+	}
+	parameters, err := validateParameters(options.Parameters)
+	if err != nil {
+		return TaskSummary{}, err
+	}
+	title := strings.TrimSpace(options.Title)
+	if title == "" || len(title) > 255 {
+		return TaskSummary{}, newInputError("title must be non-empty and no longer than 255 characters")
+	}
+	command := strings.TrimSpace(options.Command)
+	if len(command) > maxDirectCommandLength {
+		return TaskSummary{}, newInputError(fmt.Sprintf("command must not exceed %d characters", maxDirectCommandLength))
+	}
+	templateID := strings.TrimSpace(options.TemplateID)
+	if templateID != "" {
+		if command != "" {
+			return TaskSummary{}, newInputError("template ID and command cannot be used together")
+		}
+		if templateID, err = validateUUID(templateID, "template ID"); err != nil {
+			return TaskSummary{}, err
+		}
+	} else if command == "" {
+		return TaskSummary{}, newInputError("template ID or command is required")
+	}
+	if len(strings.TrimSpace(options.WorkDir)) > 512 {
+		return TaskSummary{}, newInputError("work directory must not exceed 512 characters")
+	}
+	if len(strings.TrimSpace(options.ConfirmMessage)) > maxReasonLength {
+		return TaskSummary{}, newInputError(fmt.Sprintf("confirm message must not exceed %d characters", maxReasonLength))
+	}
+	payload := map[string]any{
+		"title":          title,
+		"targetAgentIds": agentIDs,
+		"confirmRisk":    options.ConfirmRisk,
+		"parameters":     parameters,
+	}
+	if templateID != "" {
+		payload["templateId"] = templateID
+	}
+	if command != "" {
+		payload["command"] = command
+	}
+	if workDir := strings.TrimSpace(options.WorkDir); workDir != "" {
+		payload["workDir"] = workDir
+	}
+	if options.TimeoutSec > 0 {
+		payload["timeoutSec"] = options.TimeoutSec
+	}
+	if options.AutoDispatch != nil {
+		payload["autoDispatch"] = *options.AutoDispatch
+	}
+	if message := strings.TrimSpace(options.ConfirmMessage); message != "" {
+		payload["confirmMessage"] = message
+	}
+	var data execTaskRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "tasks", "direct"}, nil, payload, &data, true); err != nil {
+		return TaskSummary{}, err
+	}
+	return summarizeExecTask(data), nil
 }
 
 func (c *Client) GetExecTask(ctx context.Context, id string) (TaskSummary, error) {

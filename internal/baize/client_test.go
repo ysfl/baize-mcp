@@ -191,6 +191,15 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 				t.Fatalf("unexpected execute body: %#v", body)
 			}
 			_, _ = w.Write([]byte(`{"code":0,"data":{"plan":{"id":"` + planID + `","templateId":"` + templateID + `","title":"Restart","riskLevel":"low","renderMode":"shell","renderedPreview":"secret-command","commandHash":"hash","workDir":"/srv","parameters":{"service":"nginx"},"targetAgentIds":["` + agentID + `"],"precheck":{"precheckPassed":true},"approvalRequired":false,"status":"executed","operatorName":"Operator"},"task":{"id":"` + taskID + `","taskType":"command","title":"Restart","command":"secret-command","workDir":"/srv","envVars":{"TOKEN":"secret"},"operatorName":"Operator","status":"pending","targets":[{"id":"dddddddd-eeee-ffff-0000-111111111111","agentId":"` + agentID + `","status":"pending","outputSize":0}]}}}`))
+		case http.MethodPost + " /api/v1/ops/tasks/direct":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode direct body: %v", err)
+			}
+			if body["command"] != "systemctl restart nginx" || body["confirmRisk"] != true {
+				t.Fatalf("unexpected direct body: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + taskID + `","taskType":"command","title":"Direct restart","status":"pending","targets":[]}}`))
 		case http.MethodGet + " /api/v1/ops/tasks/" + taskID:
 			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + taskID + `","taskType":"command","title":"Restart","command":"secret-command","workDir":"/srv","envVars":{"TOKEN":"secret"},"operatorName":"Operator","status":"pending","targets":[{"id":"dddddddd-eeee-ffff-0000-111111111111","agentId":"` + agentID + `","status":"pending","outputSize":0}]}}`))
 		case http.MethodPost + " /api/v1/ops/tasks/" + taskID + "/cancel":
@@ -246,6 +255,10 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 	if err := client.CancelExecTask(context.Background(), taskID); err != nil {
 		t.Fatalf("CancelExecTask() error = %v", err)
 	}
+	directTask, err := client.DirectExecTask(context.Background(), DirectExecTaskOptions{Command: "systemctl restart nginx", Title: "Direct restart", TargetAgentIDs: []string{agentID}, ConfirmRisk: true})
+	if err != nil || directTask.ID != taskID {
+		t.Fatalf("DirectExecTask() = %#v, error = %v", directTask, err)
+	}
 }
 
 func TestClientRejectsCommandWorkflowInput(t *testing.T) {
@@ -264,6 +277,19 @@ func TestClientRejectsCommandWorkflowInput(t *testing.T) {
 	}
 	if _, err := client.ExecuteCommandPlan(context.Background(), "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", CommandPlanExecuteOptions{ConfirmMessage: strings.Repeat("x", maxReasonLength+1)}); err == nil {
 		t.Fatal("ExecuteCommandPlan() accepted an oversized confirmation message")
+	}
+	if _, err := client.DirectExecTask(context.Background(), DirectExecTaskOptions{Title: "", TargetAgentIDs: []string{"bad"}}); err == nil {
+		t.Fatal("DirectExecTask() accepted invalid input")
+	}
+	if _, err := client.DirectExecTask(context.Background(), DirectExecTaskOptions{
+		TemplateID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		Command:    "systemctl restart nginx",
+		Title:      "ambiguous direct task",
+		TargetAgentIDs: []string{
+			"11111111-2222-3333-4444-555555555555",
+		},
+	}); err == nil {
+		t.Fatal("DirectExecTask() accepted both template ID and command")
 	}
 }
 

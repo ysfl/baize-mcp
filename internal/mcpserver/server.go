@@ -34,6 +34,7 @@ type Client interface {
 	DecideCommandPlanApproval(context.Context, string, baize.CommandPlanApprovalDecisionOptions) (baize.CommandPlanApproval, error)
 	ListCommandPlanApprovalPolicies(context.Context) ([]baize.CommandPlanApprovalPolicySummary, error)
 	ExecuteCommandPlan(context.Context, string, baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error)
+	DirectExecTask(context.Context, baize.DirectExecTaskOptions) (baize.TaskSummary, error)
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
 	CancelExecTask(context.Context, string) error
 }
@@ -146,6 +147,19 @@ type commandPlanExecuteInput struct {
 	ConfirmRisk    bool   `json:"confirmRisk,omitempty" jsonschema:"explicitly confirm high-risk execution when Baize requires it"`
 	ConfirmMessage string `json:"confirmMessage,omitempty" jsonschema:"short reason for the risk confirmation"`
 	DebugSessionID string `json:"debugSessionId,omitempty" jsonschema:"optional Baize-verified debug session UUID; do not invent this value"`
+}
+
+type directExecTaskInput struct {
+	TemplateID     string         `json:"templateId,omitempty" jsonschema:"optional enabled Baize command template UUID; use this or command"`
+	Command        string         `json:"command,omitempty" jsonschema:"optional exact custom command; mutually exclusive with templateId; server must have it in the direct execution allowlist"`
+	Title          string         `json:"title" jsonschema:"human-readable execution title"`
+	WorkDir        string         `json:"workDir,omitempty" jsonschema:"optional working directory; custom allowlisted commands cannot use one"`
+	TimeoutSec     int            `json:"timeoutSec,omitempty" jsonschema:"optional execution timeout in seconds"`
+	AutoDispatch   *bool          `json:"autoDispatch,omitempty" jsonschema:"optional; defaults to dispatching the task"`
+	ConfirmRisk    bool           `json:"confirmRisk,omitempty" jsonschema:"explicitly confirm high-risk execution"`
+	ConfirmMessage string         `json:"confirmMessage,omitempty" jsonschema:"short risk confirmation reason; do not include secrets"`
+	Parameters     map[string]any `json:"parameters,omitempty" jsonschema:"template parameter values; scalar values only"`
+	TargetAgentIDs []string       `json:"targetAgentIds" jsonschema:"one or more Baize agent UUIDs"`
 }
 
 type execTaskGetInput struct {
@@ -370,6 +384,20 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 			AutoDispatch: input.AutoDispatch, ConfirmRisk: input.ConfirmRisk, ConfirmMessage: strings.TrimSpace(input.ConfirmMessage), DebugSessionID: strings.TrimSpace(input.DebugSessionID),
 		})
 		return toolOutput(result, err, "write")
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_exec_task_direct",
+		"Directly execute a Baize remote task",
+		"Creates one auditable Baize execution task through the server direct-execution permission. Enabled templates or an exact server allowlisted custom command may be used. The server still enforces authentication, agent scope and capability, dangerous-command blocking, quotas, risk confirmation, and automatic security-review audit records.",
+		true,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input directExecTaskInput) (*mcp.CallToolResult, baize.TaskSummary, error) {
+		task, err := client.DirectExecTask(ctx, baize.DirectExecTaskOptions{
+			TemplateID: strings.TrimSpace(input.TemplateID), Command: strings.TrimSpace(input.Command), Title: strings.TrimSpace(input.Title), WorkDir: strings.TrimSpace(input.WorkDir),
+			TimeoutSec: input.TimeoutSec, AutoDispatch: input.AutoDispatch, ConfirmRisk: input.ConfirmRisk, ConfirmMessage: strings.TrimSpace(input.ConfirmMessage),
+			Parameters: input.Parameters, TargetAgentIDs: input.TargetAgentIDs,
+		})
+		return toolOutput(task, err, "write")
 	})
 
 	mcp.AddTool(server, readOnlyTool(

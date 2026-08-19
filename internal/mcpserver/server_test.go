@@ -24,6 +24,7 @@ type fakeClient struct {
 	approvalID          string
 	approvalOptions     baize.CommandPlanApprovalListOptions
 	approvalDecision    baize.CommandPlanApprovalDecisionOptions
+	directOptions       baize.DirectExecTaskOptions
 	checkErr            error
 	listErr             error
 	getErr              error
@@ -73,6 +74,11 @@ func (f *lifecycleClient) DecideCommandPlanApproval(ctx context.Context, id stri
 func (f *lifecycleClient) ExecuteCommandPlan(ctx context.Context, id string, options baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error) {
 	f.record("plan.execute")
 	return f.fakeClient.ExecuteCommandPlan(ctx, id, options)
+}
+
+func (f *lifecycleClient) DirectExecTask(ctx context.Context, options baize.DirectExecTaskOptions) (baize.TaskSummary, error) {
+	f.record("task.direct")
+	return f.fakeClient.DirectExecTask(ctx, options)
 }
 
 func (f *lifecycleClient) GetExecTask(ctx context.Context, id string) (baize.TaskSummary, error) {
@@ -210,6 +216,15 @@ func (f *fakeClient) ExecuteCommandPlan(_ context.Context, id string, _ baize.Co
 	return baize.PlanExecutionSummary{Plan: baize.PlanSummary{ID: id, Status: "executed"}, Task: baize.TaskSummary{ID: f.taskID, Status: "pending"}}, nil
 }
 
+func (f *fakeClient) DirectExecTask(_ context.Context, options baize.DirectExecTaskOptions) (baize.TaskSummary, error) {
+	if f.writeErr != nil {
+		return baize.TaskSummary{}, f.writeErr
+	}
+	f.directOptions = options
+	f.taskID = "cccccccc-dddd-eeee-ffff-000000000000"
+	return baize.TaskSummary{ID: f.taskID, TaskType: "command", Title: options.Title, Status: "pending"}, nil
+}
+
 func (f *fakeClient) GetExecTask(_ context.Context, id string) (baize.TaskSummary, error) {
 	if f.writeErr != nil {
 		return baize.TaskSummary{}, f.writeErr
@@ -245,6 +260,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_command_plan_approval_get":    false,
 		"baize_command_plan_approval_decide": false,
 		"baize_command_plan_execute":         false,
+		"baize_exec_task_direct":             false,
 		"baize_exec_task_get":                false,
 		"baize_exec_task_cancel":             false,
 	}
@@ -361,6 +377,9 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	}
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_cancel", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
+	_ = callTool(t, ctx, clientSession, "baize_exec_task_direct", map[string]any{
+		"command": "systemctl restart nginx", "title": "Restart nginx", "targetAgentIds": []string{"11111111-2222-3333-4444-555555555555"}, "confirmRisk": true,
+	})
 }
 
 func TestServerWriteLifecycleRequiresPreviewApprovalBeforeExecution(t *testing.T) {
