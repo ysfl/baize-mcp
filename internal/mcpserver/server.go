@@ -43,6 +43,16 @@ type Client interface {
 	StartRuntimeDiagnosis(context.Context, baize.RuntimeDiagnosisStartOptions) (baize.RuntimeDiagnosisSummary, error)
 	GetRuntimeDiagnosis(context.Context, string) (baize.RuntimeDiagnosisDetail, error)
 	GetRuntimeDiagnosisAIContext(context.Context, string) (baize.RuntimeDiagnosisAIContext, error)
+	QueryLogs(context.Context, baize.LogsQueryOptions) (baize.LogQueryResult, error)
+	ListAlerts(context.Context, baize.AlertsListOptions) (baize.AlertIncidentPage, error)
+	ListCertificates(context.Context, baize.CertificatesListOptions) (baize.CertificateTargetPage, error)
+	QueryAssets(context.Context, baize.AssetsQueryOptions) (baize.AssetQueryResult, error)
+	QueryCronJobs(context.Context, baize.CronJobsQueryOptions) (baize.CronJobsQueryResult, error)
+	QueryRunbooks(context.Context, baize.RunbooksQueryOptions) (baize.RunbooksQueryResult, error)
+	ObserveNginx(context.Context, baize.NginxObserveOptions) (baize.NginxObserveResult, error)
+	ObserveSecurity(context.Context, baize.SecurityObserveOptions) (baize.SecurityObserveResult, error)
+	GetSystemRelease(context.Context, baize.SystemReleaseOptions) (baize.SystemReleaseResult, error)
+	GetSubscription(context.Context, baize.SubscriptionOptions) (baize.SubscriptionResult, error)
 }
 
 type emptyInput struct{}
@@ -214,6 +224,90 @@ type runtimeDiagnosisAIContextGetInput struct {
 	ID string `json:"id" jsonschema:"Baize runtime diagnosis UUID"`
 }
 
+type logsQueryInput struct {
+	Source           string `json:"source,omitempty"`
+	AgentID          string `json:"agentId,omitempty"`
+	Level            string `json:"level,omitempty"`
+	Module           string `json:"module,omitempty"`
+	Search           string `json:"search,omitempty"`
+	TaskID           string `json:"taskId,omitempty"`
+	SinceMinutes     int    `json:"sinceMinutes,omitempty"`
+	SinceTimestampMS int64  `json:"sinceTimestampMs,omitempty"`
+	Limit            int    `json:"limit,omitempty"`
+	WindowMinutes    int    `json:"windowMinutes,omitempty"`
+}
+
+type alertsListInput struct {
+	Page     int    `json:"page,omitempty"`
+	PageSize int    `json:"pageSize,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Severity string `json:"severity,omitempty"`
+}
+
+type certificatesListInput struct {
+	Page     int    `json:"page,omitempty"`
+	PageSize int    `json:"pageSize,omitempty"`
+	Search   string `json:"search,omitempty"`
+}
+
+type assetsQueryInput struct {
+	View        string `json:"view,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Page        int    `json:"page,omitempty"`
+	PageSize    int    `json:"pageSize,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Environment string `json:"environment,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Search      string `json:"search,omitempty"`
+	Days        int    `json:"days,omitempty"`
+}
+
+type cronJobsQueryInput struct {
+	View          string `json:"view,omitempty"`
+	ID            string `json:"id,omitempty"`
+	Page          int    `json:"page,omitempty"`
+	PageSize      int    `json:"pageSize,omitempty"`
+	Enabled       *bool  `json:"enabled,omitempty"`
+	ScheduleType  string `json:"scheduleType,omitempty"`
+	TargetAgentID string `json:"targetAgentId,omitempty"`
+	Search        string `json:"search,omitempty"`
+	SortBy        string `json:"sortBy,omitempty"`
+	SortOrder     string `json:"sortOrder,omitempty"`
+}
+
+type runbooksQueryInput struct {
+	View      string `json:"view,omitempty"`
+	ID        string `json:"id,omitempty"`
+	Page      int    `json:"page,omitempty"`
+	PageSize  int    `json:"pageSize,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Category  string `json:"category,omitempty"`
+	RiskLevel string `json:"riskLevel,omitempty"`
+	AIUsable  *bool  `json:"aiUsable,omitempty"`
+	Search    string `json:"search,omitempty"`
+	Action    string `json:"action,omitempty"`
+}
+
+type nginxObserveInput struct {
+	View     string     `json:"view" jsonschema:"observation view: sites, site, overview, latest, upstream, slow_requests, or response_time"`
+	AgentID  string     `json:"agentId,omitempty" jsonschema:"optional Baize agent UUID for agent-scoped views"`
+	SiteID   string     `json:"siteId,omitempty" jsonschema:"optional Nginx site UUID for site view"`
+	From     *time.Time `json:"from,omitempty" jsonschema:"optional RFC3339 start time for slow_requests or response_time"`
+	To       *time.Time `json:"to,omitempty" jsonschema:"optional RFC3339 end time for slow_requests or response_time"`
+	Page     int        `json:"page,omitempty" jsonschema:"optional page number for slow_requests"`
+	PageSize int        `json:"pageSize,omitempty" jsonschema:"optional page size from 1 to 50"`
+}
+
+type securityObserveInput struct {
+	View     string `json:"view" jsonschema:"observation view: exposure_overview, exposure_findings, exposure_scans, network_overview, network_observations, network_paths, or network_risks"`
+	Page     int    `json:"page,omitempty" jsonschema:"optional page number"`
+	PageSize int    `json:"pageSize,omitempty" jsonschema:"optional page size from 1 to 50"`
+	AgentID  string `json:"agentId,omitempty" jsonschema:"optional Baize agent UUID for network views"`
+}
+
+type systemReleaseInput struct{}
+type subscriptionInput struct{}
+
 func New(client Client) *mcp.Server {
 	return NewWithOptions(client, Options{WorkflowMode: profile.WorkflowModeMulti})
 }
@@ -347,6 +441,96 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input runtimeDiagnosisAIContextGetInput) (*mcp.CallToolResult, baize.RuntimeDiagnosisAIContext, error) {
 		result, err := client.GetRuntimeDiagnosisAIContext(ctx, strings.TrimSpace(input.ID))
 		return toolOutput(result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_logs_query",
+		"Query bounded Baize logs",
+		"Reads one fixed log view: recent server logs, an on-demand agent log query, or an aggregate overview. Correlation identifiers and raw source paths are excluded; redaction and truncation are reported explicitly.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input logsQueryInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.QueryLogs(ctx, baize.LogsQueryOptions{Source: input.Source, AgentID: input.AgentID, Level: input.Level, Module: input.Module, Search: input.Search, TaskID: input.TaskID, SinceMinutes: input.SinceMinutes, SinceTimestampMS: input.SinceTimestampMS, Limit: input.Limit, WindowMinutes: input.WindowMinutes})
+		return toolOutput[any](result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_alerts_list",
+		"List Baize alerts",
+		"Lists alerts visible to the signed-in account with bounded, privacy-reduced messages. Acknowledging user identity, resource identifiers, and diagnosis target values are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input alertsListInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.ListAlerts(ctx, baize.AlertsListOptions{Page: input.Page, PageSize: input.PageSize, Status: input.Status, Severity: input.Severity})
+		return toolOutput[any](result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_certificates_list",
+		"List certificate status",
+		"Lists certificate monitoring targets and their latest bounded status. Certificate file paths, subjects, issuers, private keys, and credentials are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input certificatesListInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.ListCertificates(ctx, baize.CertificatesListOptions{Page: input.Page, PageSize: input.PageSize, Search: input.Search})
+		return toolOutput(result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_assets_query",
+		"Query Baize assets",
+		"Reads one fixed asset inventory view: list, summary, expiring, or detail. Asset IP addresses, notes, links, and credentials are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input assetsQueryInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.QueryAssets(ctx, baize.AssetsQueryOptions{View: input.View, ID: input.ID, Page: input.Page, PageSize: input.PageSize, Status: input.Status, Environment: input.Environment, Provider: input.Provider, Search: input.Search, Days: input.Days})
+		return toolOutput(result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_cron_jobs_query",
+		"Query scheduled tasks",
+		"Reads one fixed scheduled-task view: list, detail, or execution logs. Commands, working directories, and operator identity are excluded; this tool never runs or changes a task.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input cronJobsQueryInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.QueryCronJobs(ctx, baize.CronJobsQueryOptions{View: input.View, ID: input.ID, Page: input.Page, PageSize: input.PageSize, Enabled: input.Enabled, ScheduleType: input.ScheduleType, TargetAgentID: input.TargetAgentID, Search: input.Search, SortBy: input.SortBy, SortOrder: input.SortOrder})
+		return toolOutput(result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_runbooks_query",
+		"Query Baize Runbooks",
+		"Reads one fixed Runbook view: definitions, bounded step metadata, or definition audit events. Inputs, bindings, instructions, operator identity, client IP, and audit details are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input runbooksQueryInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.QueryRunbooks(ctx, baize.RunbooksQueryOptions{View: input.View, ID: input.ID, Page: input.Page, PageSize: input.PageSize, Status: input.Status, Category: input.Category, RiskLevel: input.RiskLevel, AIUsable: input.AIUsable, Search: input.Search, Action: input.Action})
+		return toolOutput(result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_nginx_observe",
+		"Observe Baize Nginx state",
+		"Reads one fixed Nginx observation view. Client addresses, complete URLs, configuration contents, credentials, and raw slow-request details are excluded; missing detail is not evidence of failure.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input nginxObserveInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.ObserveNginx(ctx, baize.NginxObserveOptions{View: input.View, AgentID: input.AgentID, SiteID: input.SiteID, From: input.From, To: input.To, Page: input.Page, PageSize: input.PageSize})
+		return toolOutput[any](result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_security_observe",
+		"Observe Baize security state",
+		"Reads one fixed exposure or network-entry security view. Results contain bounded risk codes, severities, statuses, counts, and summaries; addresses, paths, process details, and raw evidence are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input securityObserveInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.ObserveSecurity(ctx, baize.SecurityObserveOptions{View: input.View, AgentID: input.AgentID, Page: input.Page, PageSize: input.PageSize})
+		return toolOutput[any](result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_system_release_get",
+		"Get Baize release status",
+		"Reads current and latest component versions, update availability, and bounded release notes. Images, digests, internal commits, upgrade commands, and source URLs are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, _ systemReleaseInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.GetSystemRelease(ctx, baize.SystemReleaseOptions{})
+		return toolOutput[any](result, err, "read")
+	})
+
+	mcp.AddTool(server, readOnlyTool(
+		"baize_subscription_get",
+		"Get Baize subscription status",
+		"Reads the account-visible subscription plan, license state, feature modes, limits, usage counters, and telemetry policy. Installation identity, license material, recovery targets, and upgrade URLs are excluded.",
+	), func(ctx context.Context, _ *mcp.CallToolRequest, _ subscriptionInput) (*mcp.CallToolResult, any, error) {
+		result, err := client.GetSubscription(ctx, baize.SubscriptionOptions{})
+		return toolOutput[any](result, err, "read")
 	})
 
 	mcp.AddTool(server, readOnlyTool(

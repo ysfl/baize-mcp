@@ -31,6 +31,14 @@ type fakeClient struct {
 	runtimeStartOptions baize.RuntimeDiagnosisStartOptions
 	runtimeDiagnosisID  string
 	runtimeAIContextID  string
+	logsOptions         baize.LogsQueryOptions
+	alertsOptions       baize.AlertsListOptions
+	certificatesOptions baize.CertificatesListOptions
+	assetsOptions       baize.AssetsQueryOptions
+	cronOptions         baize.CronJobsQueryOptions
+	runbooksOptions     baize.RunbooksQueryOptions
+	nginxOptions        baize.NginxObserveOptions
+	securityOptions     baize.SecurityObserveOptions
 	checkErr            error
 	listErr             error
 	getErr              error
@@ -321,6 +329,54 @@ func (f *fakeClient) GetRuntimeDiagnosisAIContext(_ context.Context, id string) 
 	}, nil
 }
 
+func (f *fakeClient) QueryLogs(_ context.Context, options baize.LogsQueryOptions) (baize.LogQueryResult, error) {
+	f.logsOptions = options
+	return baize.LogQueryResult{ReadResultBoundary: baize.ReadResultBoundary{ResultMode: "bounded_read_query"}, Source: options.Source, Items: []baize.LogLineSummary{{Level: "info", Message: "ready"}}}, nil
+}
+
+func (f *fakeClient) ListAlerts(_ context.Context, options baize.AlertsListOptions) (baize.AlertIncidentPage, error) {
+	f.alertsOptions = options
+	return baize.AlertIncidentPage{Items: []baize.AlertIncidentSummary{{ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Title: "High CPU", Status: "open"}}}, nil
+}
+
+func (f *fakeClient) ListCertificates(_ context.Context, options baize.CertificatesListOptions) (baize.CertificateTargetPage, error) {
+	f.certificatesOptions = options
+	return baize.CertificateTargetPage{Items: []baize.CertificateTargetSummary{{ID: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", Name: "Site", Host: "example.com"}}}, nil
+}
+
+func (f *fakeClient) QueryAssets(_ context.Context, options baize.AssetsQueryOptions) (baize.AssetQueryResult, error) {
+	f.assetsOptions = options
+	return baize.AssetQueryResult{View: options.View, Items: []baize.AssetItem{{ID: "22222222-3333-4444-5555-666666666666", Name: "Web asset"}}}, nil
+}
+
+func (f *fakeClient) QueryCronJobs(_ context.Context, options baize.CronJobsQueryOptions) (baize.CronJobsQueryResult, error) {
+	f.cronOptions = options
+	return baize.CronJobsQueryResult{View: options.View, Items: []baize.CronJobSummary{{ID: "33333333-4444-5555-6666-777777777777", Name: "Health check", CommandExcluded: true}}}, nil
+}
+
+func (f *fakeClient) QueryRunbooks(_ context.Context, options baize.RunbooksQueryOptions) (baize.RunbooksQueryResult, error) {
+	f.runbooksOptions = options
+	return baize.RunbooksQueryResult{View: options.View, Items: []baize.RunbookSummary{{ID: "44444444-5555-6666-7777-888888888888", Name: "Inspect service"}}}, nil
+}
+
+func (f *fakeClient) ObserveNginx(_ context.Context, options baize.NginxObserveOptions) (baize.NginxObserveResult, error) {
+	f.nginxOptions = options
+	return baize.NginxObserveResult{ReadResultBoundary: baize.ReadResultBoundary{ResultMode: "bounded_read_query"}, View: options.View}, nil
+}
+
+func (f *fakeClient) ObserveSecurity(_ context.Context, options baize.SecurityObserveOptions) (baize.SecurityObserveResult, error) {
+	f.securityOptions = options
+	return baize.SecurityObserveResult{ReadResultBoundary: baize.ReadResultBoundary{ResultMode: "bounded_read_query"}, View: options.View}, nil
+}
+
+func (f *fakeClient) GetSystemRelease(_ context.Context, _ baize.SystemReleaseOptions) (baize.SystemReleaseResult, error) {
+	return baize.SystemReleaseResult{ReadResultBoundary: baize.ReadResultBoundary{ResultMode: "bounded_read_query"}}, nil
+}
+
+func (f *fakeClient) GetSubscription(_ context.Context, _ baize.SubscriptionOptions) (baize.SubscriptionResult, error) {
+	return baize.SubscriptionResult{ReadResultBoundary: baize.ReadResultBoundary{ResultMode: "bounded_read_query"}}, nil
+}
+
 func TestServerExposesReadAndWriteTools(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeClient{}
@@ -336,6 +392,16 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_runtime_diagnosis_start":          false,
 		"baize_runtime_diagnosis_get":            false,
 		"baize_runtime_diagnosis_ai_context_get": false,
+		"baize_logs_query":                       false,
+		"baize_alerts_list":                      false,
+		"baize_certificates_list":                false,
+		"baize_assets_query":                     false,
+		"baize_cron_jobs_query":                  false,
+		"baize_runbooks_query":                   false,
+		"baize_nginx_observe":                    false,
+		"baize_security_observe":                 false,
+		"baize_system_release_get":               false,
+		"baize_subscription_get":                 false,
 		"baize_command_templates_list":           false,
 		"baize_command_template_preview":         false,
 		"baize_command_plan_create":              false,
@@ -362,7 +428,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		if tool.Annotations == nil {
 			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_agent_observe" || tool.Name == "baize_runtime_diagnosis_get" || tool.Name == "baize_runtime_diagnosis_ai_context_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get" || tool.Name == "baize_exec_task_output_get"
+		readOnly := strings.HasSuffix(tool.Name, "status") || strings.HasSuffix(tool.Name, "_query") || strings.HasSuffix(tool.Name, "_list") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_agent_observe" || tool.Name == "baize_runtime_diagnosis_get" || tool.Name == "baize_runtime_diagnosis_ai_context_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get" || tool.Name == "baize_exec_task_output_get" || tool.Name == "baize_nginx_observe" || tool.Name == "baize_security_observe" || tool.Name == "baize_system_release_get" || tool.Name == "baize_subscription_get"
 		if readOnly {
 			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
@@ -387,6 +453,24 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		}
 		if tool.Name == "baize_runtime_diagnosis_start" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"agentId", "targetType", "targetValue", "timeHint", "sourceModule", "timeoutSec", "maxResults"})
+		}
+		if tool.Name == "baize_logs_query" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"source", "agentId", "level", "module", "search", "taskId", "sinceMinutes", "sinceTimestampMs", "limit", "windowMinutes"})
+		}
+		if tool.Name == "baize_assets_query" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"view", "id", "page", "pageSize", "status", "environment", "provider", "search", "days"})
+		}
+		if tool.Name == "baize_cron_jobs_query" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"view", "id", "page", "pageSize", "enabled", "scheduleType", "targetAgentId", "search", "sortBy", "sortOrder"})
+		}
+		if tool.Name == "baize_runbooks_query" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"view", "id", "page", "pageSize", "status", "category", "riskLevel", "aiUsable", "search", "action"})
+		}
+		if tool.Name == "baize_nginx_observe" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"view", "agentId", "siteId", "from", "to", "page", "pageSize"})
+		}
+		if tool.Name == "baize_security_observe" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"view", "page", "pageSize", "agentId"})
 		}
 		if tool.Name == "baize_exec_task_output_get" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"taskId", "targetId", "limit", "mode", "afterSeq", "beforeSeq", "targetLimit", "targetOffset"})
@@ -466,6 +550,40 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		t.Fatalf("unexpected AI context result: id=%q result=%s", fake.runtimeAIContextID, aiContext)
 	}
 	assertStructuredFieldsAbsent(t, aiContext, "requestId", "requestedBy", "auditRefs", "command", "cwd", "evidences")
+	logs := callTool(t, ctx, clientSession, "baize_logs_query", map[string]any{"source": "server", "level": "error", "limit": 5})
+	if fake.logsOptions.Source != "server" || fake.logsOptions.Limit != 5 || !strings.Contains(logs, "bounded_read_query") {
+		t.Fatalf("unexpected logs result: options=%#v result=%s", fake.logsOptions, logs)
+	}
+	alerts := callTool(t, ctx, clientSession, "baize_alerts_list", map[string]any{"status": "open", "pageSize": 10})
+	if fake.alertsOptions.Status != "open" || !strings.Contains(alerts, "High CPU") {
+		t.Fatalf("unexpected alerts result: options=%#v result=%s", fake.alertsOptions, alerts)
+	}
+	_ = callTool(t, ctx, clientSession, "baize_nginx_observe", map[string]any{"view": "overview", "agentId": agentID})
+	if fake.nginxOptions.View != "overview" || fake.nginxOptions.AgentID != agentID {
+		t.Fatalf("unexpected nginx observation options: %#v", fake.nginxOptions)
+	}
+	_ = callTool(t, ctx, clientSession, "baize_security_observe", map[string]any{"view": "network_risks", "agentId": agentID})
+	if fake.securityOptions.View != "network_risks" || fake.securityOptions.AgentID != agentID {
+		t.Fatalf("unexpected security observation options: %#v", fake.securityOptions)
+	}
+	_ = callTool(t, ctx, clientSession, "baize_system_release_get", map[string]any{})
+	_ = callTool(t, ctx, clientSession, "baize_subscription_get", map[string]any{})
+	certificates := callTool(t, ctx, clientSession, "baize_certificates_list", map[string]any{"search": "example"})
+	if fake.certificatesOptions.Search != "example" || !strings.Contains(certificates, "example.com") {
+		t.Fatalf("unexpected certificate result: options=%#v result=%s", fake.certificatesOptions, certificates)
+	}
+	assets := callTool(t, ctx, clientSession, "baize_assets_query", map[string]any{"view": "list", "environment": "prod"})
+	if fake.assetsOptions.Environment != "prod" || !strings.Contains(assets, "Web asset") {
+		t.Fatalf("unexpected assets result: options=%#v result=%s", fake.assetsOptions, assets)
+	}
+	cronJobs := callTool(t, ctx, clientSession, "baize_cron_jobs_query", map[string]any{"view": "list", "scheduleType": "cron"})
+	if fake.cronOptions.ScheduleType != "cron" || !strings.Contains(cronJobs, "commandExcluded") {
+		t.Fatalf("unexpected cron result: options=%#v result=%s", fake.cronOptions, cronJobs)
+	}
+	runbooks := callTool(t, ctx, clientSession, "baize_runbooks_query", map[string]any{"view": "list", "riskLevel": "read_only"})
+	if fake.runbooksOptions.RiskLevel != "read_only" || !strings.Contains(runbooks, "Inspect service") {
+		t.Fatalf("unexpected Runbook result: options=%#v result=%s", fake.runbooksOptions, runbooks)
+	}
 
 	templates := callTool(t, ctx, clientSession, "baize_command_templates_list", map[string]any{"pageSize": 10, "riskLevel": "low"})
 	if !strings.Contains(templates, "Restart service") {
