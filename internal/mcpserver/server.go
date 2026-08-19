@@ -45,6 +45,7 @@ type Client interface {
 	GetRuntimeDiagnosisAIContext(context.Context, string) (baize.RuntimeDiagnosisAIContext, error)
 	QueryLogs(context.Context, baize.LogsQueryOptions) (baize.LogQueryResult, error)
 	ListAlerts(context.Context, baize.AlertsListOptions) (baize.AlertIncidentPage, error)
+	ChangeAlert(context.Context, baize.AlertChangeOptions) (baize.AlertChangeResult, error)
 	ListCertificates(context.Context, baize.CertificatesListOptions) (baize.CertificateTargetPage, error)
 	QueryAssets(context.Context, baize.AssetsQueryOptions) (baize.AssetQueryResult, error)
 	QueryCronJobs(context.Context, baize.CronJobsQueryOptions) (baize.CronJobsQueryResult, error)
@@ -242,6 +243,11 @@ type alertsListInput struct {
 	PageSize int    `json:"pageSize,omitempty"`
 	Status   string `json:"status,omitempty"`
 	Severity string `json:"severity,omitempty"`
+}
+
+type alertChangeInput struct {
+	IncidentID string `json:"incidentId" jsonschema:"Baize alert incident UUID"`
+	Action     string `json:"action" jsonschema:"alert action: acknowledge or resolve"`
 }
 
 type certificatesListInput struct {
@@ -459,6 +465,16 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input alertsListInput) (*mcp.CallToolResult, any, error) {
 		result, err := client.ListAlerts(ctx, baize.AlertsListOptions{Page: input.Page, PageSize: input.PageSize, Status: input.Status, Severity: input.Severity})
 		return toolOutput[any](result, err, "read")
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_alert_change",
+		"Acknowledge or resolve a Baize alert",
+		"Requests acknowledgement or resolution for one visible Baize alert. Baize enforces the alert-management permission, current alert state, audit and any server-side rules; query the alert again to confirm the final status.",
+		true,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input alertChangeInput) (*mcp.CallToolResult, baize.AlertChangeResult, error) {
+		result, err := client.ChangeAlert(ctx, baize.AlertChangeOptions{IncidentID: strings.TrimSpace(input.IncidentID), Action: strings.TrimSpace(input.Action)})
+		return toolOutput(result, err, "write")
 	})
 
 	mcp.AddTool(server, readOnlyTool(

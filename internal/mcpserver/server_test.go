@@ -33,6 +33,7 @@ type fakeClient struct {
 	runtimeAIContextID  string
 	logsOptions         baize.LogsQueryOptions
 	alertsOptions       baize.AlertsListOptions
+	alertChangeOptions  baize.AlertChangeOptions
 	certificatesOptions baize.CertificatesListOptions
 	assetsOptions       baize.AssetsQueryOptions
 	cronOptions         baize.CronJobsQueryOptions
@@ -339,6 +340,14 @@ func (f *fakeClient) ListAlerts(_ context.Context, options baize.AlertsListOptio
 	return baize.AlertIncidentPage{Items: []baize.AlertIncidentSummary{{ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Title: "High CPU", Status: "open"}}}, nil
 }
 
+func (f *fakeClient) ChangeAlert(_ context.Context, options baize.AlertChangeOptions) (baize.AlertChangeResult, error) {
+	if f.writeErr != nil {
+		return baize.AlertChangeResult{}, f.writeErr
+	}
+	f.alertChangeOptions = options
+	return baize.AlertChangeResult{IncidentID: options.IncidentID, Action: options.Action, Accepted: true, StatusQueryNeeded: true, Notice: "query the alert again"}, nil
+}
+
 func (f *fakeClient) ListCertificates(_ context.Context, options baize.CertificatesListOptions) (baize.CertificateTargetPage, error) {
 	f.certificatesOptions = options
 	return baize.CertificateTargetPage{Items: []baize.CertificateTargetSummary{{ID: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", Name: "Site", Host: "example.com"}}}, nil
@@ -394,6 +403,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_runtime_diagnosis_ai_context_get": false,
 		"baize_logs_query":                       false,
 		"baize_alerts_list":                      false,
+		"baize_alert_change":                     false,
 		"baize_certificates_list":                false,
 		"baize_assets_query":                     false,
 		"baize_cron_jobs_query":                  false,
@@ -474,6 +484,9 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		}
 		if tool.Name == "baize_exec_task_output_get" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"taskId", "targetId", "limit", "mode", "afterSeq", "beforeSeq", "targetLimit", "targetOffset"})
+		}
+		if tool.Name == "baize_alert_change" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"incidentId", "action"})
 		}
 	}
 	for name, found := range wantNames {
@@ -557,6 +570,10 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	alerts := callTool(t, ctx, clientSession, "baize_alerts_list", map[string]any{"status": "open", "pageSize": 10})
 	if fake.alertsOptions.Status != "open" || !strings.Contains(alerts, "High CPU") {
 		t.Fatalf("unexpected alerts result: options=%#v result=%s", fake.alertsOptions, alerts)
+	}
+	alertChange := callTool(t, ctx, clientSession, "baize_alert_change", map[string]any{"incidentId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "action": "resolve"})
+	if fake.alertChangeOptions.Action != "resolve" || fake.alertChangeOptions.IncidentID != "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" || !strings.Contains(alertChange, "statusQueryNeeded") {
+		t.Fatalf("unexpected alert change result: options=%#v result=%s", fake.alertChangeOptions, alertChange)
 	}
 	_ = callTool(t, ctx, clientSession, "baize_nginx_observe", map[string]any{"view": "overview", "agentId": agentID})
 	if fake.nginxOptions.View != "overview" || fake.nginxOptions.AgentID != agentID {
