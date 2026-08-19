@@ -21,6 +21,7 @@ const maxToolOutputBytes = 64 << 10
 
 type Client interface {
 	CheckSession(context.Context) error
+	GetOverview(context.Context, baize.OverviewOptions) (baize.OverviewSummary, error)
 	ListAgents(context.Context, baize.AgentListOptions) (baize.AgentPage, error)
 	GetAgent(context.Context, string) (baize.AgentSummary, error)
 	ListCommandTemplates(context.Context, baize.CommandTemplateListOptions) (baize.CommandTemplatePage, error)
@@ -184,6 +185,7 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 		&mcp.Implementation{Name: "baize-mcp", Version: buildinfo.Version},
 		&mcp.ServerOptions{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))},
 	)
+	registerOverviewTool(server, client)
 
 	mcp.AddTool(server, readOnlyTool(
 		"baize_workflow_status",

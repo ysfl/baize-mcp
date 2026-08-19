@@ -56,7 +56,7 @@ baize-mcp login \
 
 这份客户端配置不包含白泽地址、用户名、密码或会话凭据。需要连接多个实例时，可以在登录和 `serve` 命令中使用不同的 `--profile` 名称。
 
-安装 [Baize AI Skill](https://github.com/ysfl/baize/blob/main/skills/baize-ai/SKILL.md) 后，AI 可以在用户提到白泽、服务器节点或状态查询时优先选择这些 MCP 工具，并在多节点匹配时先让用户确认。完整使用方式见 [AI 接入与远程任务指南](https://github.com/ysfl/baize/blob/main/docs/ai-remote-tasks.md)。
+安装 [Baize AI Skill](https://github.com/ysfl/baize/blob/main/skills/baize-ai/SKILL.md) 后，AI 可以在用户提到白泽、服务器节点或状态查询时优先选择已配置的受控 API 工具；没有 API 工具时使用这些 MCP 工具，并在多节点匹配时先让用户确认。完整使用方式见 [AI 接入与远程任务指南](https://github.com/ysfl/baize/blob/main/docs/ai-remote-tasks.md)。
 
 ## MCP 工具
 
@@ -81,6 +81,8 @@ baize-mcp login \
 
 ### 下一版本候选（尚未随稳定版本发布）
 
+- `baize_exec_task_direct`：通过白泽服务端的直接任务入口创建一条可追踪远程任务；模板是可选快捷方式，也可以提交服务端允许的精确自定义命令。权限、风险确认、审批要求和审计仍由白泽决定。
+- `baize_overview_get`：读取当前账号可见范围内的平台运行摘要和有限数量的重点异常节点。资源缓存缺失、异常列表为空或分区请求失败会通过结果字段明确标记，AI 不应把空列表当作绝对健康；工具不返回地址、凭据或后端排序权重。
 - `baize_workflow_status`：读取本机 profile 的工作流模式和白泽服务端审批策略摘要；当前账号没有策略查看权限时仍返回本地模式，并将 `approvalPolicyAccess` 标记为 `not_visible`。
 - `baize_command_plan_cancel`：取消尚未执行的命令计划。
 - profile 支持 `multi`（默认）和 `single`。单人模式只改变工作流偏好；是否允许自审批、是否需要审批以及审计仍由白泽服务端策略决定。
@@ -92,7 +94,7 @@ baize-mcp config set --profile default --workflow-mode single
 baize-mcp config get --profile default
 ```
 
-当前稳定版本尚未提供不生成常规远程操作记录的直执行流程；现有执行仍由白泽服务端按账号权限、风险确认、审批和操作记录规则处理。MCP 没有独立的远程审计存储。
+当前稳定 MCP 版本主要提供命令计划工作流；普通远程任务 API 不要求 `templateId`，也不因 API 调用而绕过权限或审计。API 和 MCP 都使用带角色的白泽账号，操作历史和安全审计由白泽服务端保留；是否需要审批由服务端策略决定。MCP 没有独立的审计存储。
 
 ## 版本与更新
 

@@ -56,7 +56,7 @@ Add the following configuration to a client that supports MCP over stdio. Replac
 
 The client configuration contains no Baize address, username, password, or session credential. To connect to more than one instance, use a different `--profile` name for both the sign-in and `serve` commands.
 
-After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/skills/baize-ai/SKILL.md), an AI can prefer these MCP tools when the user mentions Baize, server nodes, or status queries, and ask the user to choose when multiple nodes match. See the [AI Access and Remote Task Guide](https://github.com/ysfl/baize/blob/main/docs/en/ai-remote-tasks.md) for the complete workflow.
+After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/skills/baize-ai/SKILL.md), an AI can prefer a configured controlled API tool when the user mentions Baize, server nodes, or status queries, and use these MCP tools when no API tool is available. It still asks the user to choose when multiple nodes match. See the [AI Access and Remote Task Guide](https://github.com/ysfl/baize/blob/main/docs/en/ai-remote-tasks.md) for the complete workflow.
 
 ## MCP Tools
 
@@ -81,6 +81,8 @@ Command-plan approval tools were released in `v0.1.3`. Approval still requires t
 
 ### Next-release candidate (not in the stable release yet)
 
+- `baize_exec_task_direct`: creates one traceable remote task through Baize's direct-task entry. A template is an optional shortcut; an exact custom command may be used when Baize allows it. Baize still decides permissions, risk confirmation, approval requirements, and audit.
+- `baize_overview_get`: reads the account-scoped runtime summary and a bounded set of highlighted abnormal nodes. Missing resource caches, an empty abnormal list, and failed sections are marked in the result so an AI must not treat an empty list as proof of health; addresses, credentials, and backend ranking weights are excluded.
 - `baize_workflow_status`: reads the local profile workflow mode and a minimal summary of the Baize server approval policies; if the signed-in account cannot view policies, it still returns the local mode and marks `approvalPolicyAccess` as `not_visible`.
 - `baize_command_plan_cancel`: cancels a command plan that has not been executed.
 - Profiles support `multi` (the default) and `single`. Single-user mode changes the workflow preference only; Baize still decides whether self-approval, approval, or audit is required.
@@ -92,7 +94,7 @@ baize-mcp config set --profile default --workflow-mode single
 baize-mcp config get --profile default
 ```
 
-The current stable release does not provide a direct-execution flow that omits normal remote-operation records. Existing execution still follows Baize server account permissions, risk confirmation, approval, and operation-record rules. MCP has no independent remote audit store.
+The stable MCP release mainly provides the command-plan workflow. The ordinary remote-task API does not require `templateId`, and using the API does not bypass permissions or audit. Both API and MCP use a role-bearing Baize account; Baize keeps the operation history and security audit, and its policy decides whether approval is required. MCP has no independent audit store.
 
 ## Versions and Updates
 

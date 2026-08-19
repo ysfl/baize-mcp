@@ -25,9 +25,11 @@ type fakeClient struct {
 	approvalOptions     baize.CommandPlanApprovalListOptions
 	approvalDecision    baize.CommandPlanApprovalDecisionOptions
 	directOptions       baize.DirectExecTaskOptions
+	overviewOptions     baize.OverviewOptions
 	checkErr            error
 	listErr             error
 	getErr              error
+	overviewErr         error
 	policyErr           error
 	writeErr            error
 }
@@ -93,6 +95,21 @@ func (f *lifecycleClient) CancelExecTask(ctx context.Context, id string) error {
 
 func (f *fakeClient) CheckSession(context.Context) error {
 	return f.checkErr
+}
+
+func (f *fakeClient) GetOverview(_ context.Context, options baize.OverviewOptions) (baize.OverviewSummary, error) {
+	if f.overviewErr != nil {
+		return baize.OverviewSummary{}, f.overviewErr
+	}
+	f.overviewOptions = options
+	return baize.OverviewSummary{
+		ServerStatus: &baize.ServerStatusSummary{Total: 2, Online: 1, Offline: 1},
+		AbnormalServers: []baize.AbnormalServerSummary{{
+			AgentID: "11111111-2222-3333-4444-555555555555", Hostname: "web-01", Status: "offline",
+			Reasons: []baize.OverviewAbnormalReason{{Metric: "offline"}},
+		}},
+		ResourceDataAvailable: true, AbnormalDataAvailable: true,
+	}, nil
 }
 
 func (f *fakeClient) ListAgents(_ context.Context, options baize.AgentListOptions) (baize.AgentPage, error) {
@@ -246,6 +263,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	clientSession := connectClient(t, ctx, fake)
 
 	wantNames := map[string]bool{
+		"baize_overview_get":                 false,
 		"baize_workflow_status":              false,
 		"baize_connection_status":            false,
 		"baize_agents_list":                  false,
@@ -275,7 +293,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		if tool.Annotations == nil {
 			t.Fatalf("tool %q has no annotations", tool.Name)
 		}
-		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get"
+		readOnly := strings.HasSuffix(tool.Name, "status") || tool.Name == "baize_workflow_status" || tool.Name == "baize_overview_get" || tool.Name == "baize_agents_list" || tool.Name == "baize_agent_get" || tool.Name == "baize_command_templates_list" || tool.Name == "baize_command_template_preview" || tool.Name == "baize_command_plan_get" || tool.Name == "baize_command_plan_approvals_list" || tool.Name == "baize_command_plan_approval_get" || tool.Name == "baize_exec_task_get"
 		if readOnly {
 			if !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 				t.Fatalf("tool %q does not declare read-only idempotent behavior", tool.Name)
@@ -291,6 +309,9 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 				"page", "pageSize", "search", "alias", "system", "region", "agentVersion",
 				"architecture", "status", "groupId", "sortBy", "sortOrder",
 			})
+		}
+		if tool.Name == "baize_overview_get" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"groupId", "limit"})
 		}
 	}
 	for name, found := range wantNames {
@@ -309,6 +330,17 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	workflow := callTool(t, ctx, clientSession, "baize_workflow_status", map[string]any{})
 	if !strings.Contains(workflow, `"workflowMode":"multi"`) || !strings.Contains(workflow, `"approvalPolicyAccess":"available"`) || !strings.Contains(workflow, `"auditControl":"server_managed"`) {
 		t.Fatalf("unexpected workflow status: %s", workflow)
+	}
+	overview := callTool(t, ctx, clientSession, "baize_overview_get", map[string]any{"groupId": " aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee ", "limit": 5})
+	if fake.overviewOptions != (baize.OverviewOptions{GroupID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Limit: 5}) {
+		t.Fatalf("GetOverview() options = %#v", fake.overviewOptions)
+	}
+	if !strings.Contains(overview, "abnormalServers") || strings.Contains(overview, "weight") {
+		t.Fatalf("unexpected overview result: %s", overview)
+	}
+	_ = callTool(t, ctx, clientSession, "baize_overview_get", map[string]any{})
+	if fake.overviewOptions.Limit != baize.OverviewDefaultLimit {
+		t.Fatalf("GetOverview() default limit = %d", fake.overviewOptions.Limit)
 	}
 
 	const groupID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"

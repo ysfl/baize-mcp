@@ -8,6 +8,8 @@ This file records user-visible changes in published Baize MCP versions.
 
 ### 中文
 
+- 未发布候选增加直接远程任务入口；模板只是可选快捷方式，也可以使用服务端允许的精确自定义命令，权限、风险确认、审批和审计仍由白泽处理。
+- 未发布候选增加 `baize_overview_get`，组合运行态总览和重点异常节点查询；结果对缓存不可用、空异常列表和部分请求失败做显式标记，不把空结果解释为整体健康。
 - 增加按 profile 保存的 `multi` / `single` 工作流模式，旧配置和新登录默认使用多人模式。
 - 增加工作流状态与命令计划取消工具；模式只影响 AI 工作流偏好，白泽后端仍负责审批策略、权限和审计。
 - 普通账号无审批策略查看权限时，工作流状态仍返回本地模式并标记策略不可见；会话失效和服务异常继续显式失败。
@@ -15,6 +17,8 @@ This file records user-visible changes in published Baize MCP versions.
 
 ### English
 
+- Adds an unreleased direct remote-task candidate. Templates remain optional shortcuts, while exact custom commands are accepted only when Baize allows them; Baize still handles permissions, risk confirmation, approval, and audit.
+- Adds the unreleased `baize_overview_get` candidate, combining the runtime summary with highlighted abnormal nodes. The result marks unavailable caches, empty abnormal lists, and partial request failures instead of treating an empty result as proof of overall health.
 - Adds profile-scoped `multi` and `single` workflow modes; existing profiles and new sign-ins default to multi-user mode.
 - Adds workflow-status and command-plan cancellation tools. The mode changes AI workflow preference only; Baize still owns approval policy, permissions, and audit.
 - Keeps workflow status useful for accounts that cannot view approval policies by marking the policy summary as `not_visible`; invalid sessions and service failures still return errors.
