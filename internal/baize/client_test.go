@@ -202,6 +202,8 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + taskID + `","taskType":"command","title":"Direct restart","status":"pending","targets":[]}}`))
 		case http.MethodGet + " /api/v1/ops/tasks/" + taskID:
 			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + taskID + `","taskType":"command","title":"Restart","command":"secret-command","workDir":"/srv","envVars":{"TOKEN":"secret"},"operatorName":"Operator","status":"pending","targets":[{"id":"dddddddd-eeee-ffff-0000-111111111111","agentId":"` + agentID + `","status":"pending","outputSize":0}]}}`))
+		case http.MethodPost + " /api/v1/ops/tasks/" + taskID + "/dispatch":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"taskId":"` + taskID + `","dispatched":true}}`))
 		case http.MethodPost + " /api/v1/ops/tasks/" + taskID + "/cancel":
 			_, _ = w.Write([]byte(`{"code":0,"data":null}`))
 		default:
@@ -251,6 +253,10 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 	}
 	if _, err := client.GetExecTask(context.Background(), taskID); err != nil {
 		t.Fatalf("GetExecTask() error = %v", err)
+	}
+	dispatched, err := client.DispatchExecTask(context.Background(), taskID)
+	if err != nil || dispatched.ID != taskID || dispatched.Status != "dispatched" {
+		t.Fatalf("DispatchExecTask() = %#v, error = %v", dispatched, err)
 	}
 	if err := client.CancelExecTask(context.Background(), taskID); err != nil {
 		t.Fatalf("CancelExecTask() error = %v", err)
@@ -604,6 +610,31 @@ func TestClientDoesNotExposeErrorBody(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "do-not-return") {
 		t.Fatalf("error exposed response body: %v", err)
+	}
+}
+
+func TestClientPreservesOnlyStableErrorDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"details":{"reason":"operation.conflict","retryable":false,"messageKey":"api.errors.operationConflict","messageParams":{"secret":"do-not-return"},"nextActionKey":"api.actions.checkState","nextActionParams":{"traceId":"do-not-return"}},"traceId":"trace-1","message":"private backend message"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "session-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	err = client.CheckSession(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("CheckSession() error = %v, want APIError", err)
+	}
+	if apiErr.Reason != "operation.conflict" || apiErr.MessageKey != "api.errors.operationConflict" || apiErr.NextActionKey != "api.actions.checkState" || apiErr.Retryable == nil || *apiErr.Retryable {
+		t.Fatalf("stable error details = %#v", apiErr)
+	}
+	if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "trace-1") || strings.Contains(err.Error(), "private backend") {
+		t.Fatalf("error exposed private details: %v", err)
 	}
 }
 

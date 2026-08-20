@@ -428,6 +428,13 @@ type execTaskRecord struct {
 	Targets     []execTargetRecord `json:"targets"`
 }
 
+// dispatchTaskRecord 同时兼容派发接口返回完整任务详情和旧服务返回的最小回退对象。
+type dispatchTaskRecord struct {
+	execTaskRecord
+	TaskID     string `json:"taskId"`
+	Dispatched bool   `json:"dispatched"`
+}
+
 type execTargetRecord struct {
 	ID         string     `json:"id"`
 	AgentID    string     `json:"agentId"`
@@ -484,7 +491,11 @@ type agentRecord struct {
 }
 
 type APIError struct {
-	StatusCode int
+	StatusCode    int
+	Reason        string
+	Retryable     *bool
+	MessageKey    string
+	NextActionKey string
 }
 
 func (e *APIError) Error() string {
@@ -1121,6 +1132,25 @@ func (c *Client) GetExecTask(ctx context.Context, id string) (TaskSummary, error
 	return summarizeExecTask(data), nil
 }
 
+// DispatchExecTask 继续派发已创建但尚未下发的远程任务；命令内容和目标范围只能沿用服务端已记录的任务。
+func (c *Client) DispatchExecTask(ctx context.Context, id string) (TaskSummary, error) {
+	taskID, err := validateUUID(id, "execution task ID")
+	if err != nil {
+		return TaskSummary{}, err
+	}
+	var data dispatchTaskRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "tasks", taskID, "dispatch"}, nil, nil, &data, true); err != nil {
+		return TaskSummary{}, err
+	}
+	if data.ID == "" {
+		data.ID = data.TaskID
+	}
+	if data.Status == "" && data.Dispatched {
+		data.Status = "dispatched"
+	}
+	return summarizeExecTask(data.execTaskRecord), nil
+}
+
 func (c *Client) CancelExecTask(ctx context.Context, id string) error {
 	taskID, err := validateUUID(id, "execution task ID")
 	if err != nil {
@@ -1435,7 +1465,7 @@ func (c *Client) do(ctx context.Context, method string, segments []string, query
 		return errors.New("Baize response exceeded the allowed size")
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return &APIError{StatusCode: resp.StatusCode}
+		return parseAPIError(resp.StatusCode, raw)
 	}
 	var envelope struct {
 		Data json.RawMessage `json:"data"`
@@ -1450,6 +1480,39 @@ func (c *Client) do(ctx context.Context, method string, segments []string, query
 		return errors.New("Baize response did not match the expected format")
 	}
 	return nil
+}
+
+var apiErrorKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+
+type apiErrorEnvelope struct {
+	Details struct {
+		Reason        string `json:"reason"`
+		Retryable     *bool  `json:"retryable"`
+		MessageKey    string `json:"messageKey"`
+		NextActionKey string `json:"nextActionKey"`
+	} `json:"details"`
+}
+
+// parseAPIError 只保留公开契约中的稳定错误标识，不保留服务端原始 message、参数或 traceId。
+func parseAPIError(statusCode int, raw []byte) *APIError {
+	apiErr := &APIError{StatusCode: statusCode}
+	var envelope apiErrorEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return apiErr
+	}
+	apiErr.Reason = normalizeAPIErrorKey(envelope.Details.Reason)
+	apiErr.MessageKey = normalizeAPIErrorKey(envelope.Details.MessageKey)
+	apiErr.NextActionKey = normalizeAPIErrorKey(envelope.Details.NextActionKey)
+	apiErr.Retryable = envelope.Details.Retryable
+	return apiErr
+}
+
+func normalizeAPIErrorKey(value string) string {
+	value = strings.TrimSpace(value)
+	if !apiErrorKeyPattern.MatchString(value) {
+		return ""
+	}
+	return value
 }
 
 func summarizeAgent(item agentRecord) AgentSummary {

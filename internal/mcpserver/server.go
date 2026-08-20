@@ -38,6 +38,7 @@ type Client interface {
 	ExecuteCommandPlan(context.Context, string, baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error)
 	DirectExecTask(context.Context, baize.DirectExecTaskOptions) (baize.TaskSummary, error)
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
+	DispatchExecTask(context.Context, string) (baize.TaskSummary, error)
 	GetExecTaskOutput(context.Context, baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error)
 	CancelExecTask(context.Context, string) error
 	StartRuntimeDiagnosis(context.Context, baize.RuntimeDiagnosisStartOptions) (baize.RuntimeDiagnosisSummary, error)
@@ -189,6 +190,10 @@ type directExecTaskInput struct {
 }
 
 type execTaskGetInput struct {
+	ID string `json:"id" jsonschema:"Baize execution task UUID"`
+}
+
+type execTaskDispatchInput struct {
 	ID string `json:"id" jsonschema:"Baize execution task UUID"`
 }
 
@@ -675,8 +680,8 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 
 	mcp.AddTool(server, writeTool(
 		"baize_exec_task_direct",
-		"Directly execute a Baize remote task",
-		"Creates one auditable Baize execution task through the server direct-execution permission. Enabled templates or an exact server allowlisted custom command may be used. The server still enforces authentication, agent scope and capability, dangerous-command blocking, quotas, risk confirmation, and automatic security-review audit records.",
+		"Directly execute a remote task",
+		"Creates an auditable task using a template or server-allowlisted command. Baize enforces permissions, agent scope, safety, risk confirmation, quotas, dispatch and audit.",
 		true,
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input directExecTaskInput) (*mcp.CallToolResult, baize.TaskSummary, error) {
 		task, err := client.DirectExecTask(ctx, baize.DirectExecTaskOptions{
@@ -690,10 +695,20 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	mcp.AddTool(server, readOnlyTool(
 		"baize_exec_task_get",
 		"Get a Baize execution task",
-		"Returns bounded task and per-agent progress for one remote execution task. Command text, environment values, output, and operator identity are not returned.",
+		"Returns bounded task and target progress. Commands, environment values, output and operator identity are excluded.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskGetInput) (*mcp.CallToolResult, baize.TaskSummary, error) {
 		task, err := client.GetExecTask(ctx, input.ID)
 		return toolOutput(task, err, "read")
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_exec_task_dispatch",
+		"Dispatch a remote task",
+		"Dispatches an existing pending task without changing its command or targets. Baize checks permission and task state.",
+		true,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskDispatchInput) (*mcp.CallToolResult, baize.TaskSummary, error) {
+		task, err := client.DispatchExecTask(ctx, input.ID)
+		return toolOutput(task, err, "write")
 	})
 
 	mcp.AddTool(server, readOnlyTool(
@@ -711,7 +726,7 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	mcp.AddTool(server, writeTool(
 		"baize_exec_task_cancel",
 		"Cancel a Baize execution task",
-		"Requests cancellation of a pending or running remote execution task. Baize records the action and applies its existing permission and task-state rules.",
+		"Requests cancellation of a pending or running task. Baize records the action and checks permission and task state.",
 		true,
 	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskCancelInput) (*mcp.CallToolResult, emptyInput, error) {
 		err := client.CancelExecTask(ctx, input.ID)
@@ -755,20 +770,39 @@ func toolErrorWithAction(err error, action string) error {
 	}
 	var apiErr *baize.APIError
 	if errors.As(err, &apiErr) {
+		base := ""
 		switch apiErr.StatusCode {
 		case 401:
-			return errors.New("the saved Baize session is no longer valid")
+			base = "the saved Baize session is no longer valid"
 		case 403:
-			return fmt.Errorf("Baize denied this %s request", action)
+			base = fmt.Sprintf("Baize denied this %s request", action)
 		case 404:
-			return errors.New("the requested Baize resource was not found")
+			base = "the requested Baize resource was not found"
 		case 409:
-			return errors.New("Baize could not complete this request because the current task state requires confirmation or approval")
+			base = "Baize could not complete this request because the current task state requires confirmation or approval"
 		case 429:
-			return errors.New("Baize temporarily limited this request")
+			base = "Baize temporarily limited this request"
 		default:
-			return errors.New("Baize could not complete this request")
+			base = "Baize could not complete this request"
 		}
+		// 只回传服务端契约中的稳定标识，帮助 AI 选择下一步；不回传原始错误、参数或 traceId。
+		parts := make([]string, 0, 4)
+		if apiErr.Reason != "" {
+			parts = append(parts, "reason="+apiErr.Reason)
+		}
+		if apiErr.MessageKey != "" {
+			parts = append(parts, "messageKey="+apiErr.MessageKey)
+		}
+		if apiErr.NextActionKey != "" {
+			parts = append(parts, "nextActionKey="+apiErr.NextActionKey)
+		}
+		if apiErr.Retryable != nil {
+			parts = append(parts, fmt.Sprintf("retryable=%t", *apiErr.Retryable))
+		}
+		if len(parts) > 0 {
+			return fmt.Errorf("%s (%s)", base, strings.Join(parts, ", "))
+		}
+		return errors.New(base)
 	}
 	return errors.New("the Baize request could not be completed")
 }

@@ -102,6 +102,11 @@ func (f *lifecycleClient) GetExecTask(ctx context.Context, id string) (baize.Tas
 	return f.fakeClient.GetExecTask(ctx, id)
 }
 
+func (f *lifecycleClient) DispatchExecTask(ctx context.Context, id string) (baize.TaskSummary, error) {
+	f.record("task.dispatch")
+	return f.fakeClient.DispatchExecTask(ctx, id)
+}
+
 func (f *lifecycleClient) GetExecTaskOutput(ctx context.Context, options baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error) {
 	f.record("task.output")
 	return f.fakeClient.GetExecTaskOutput(ctx, options)
@@ -280,6 +285,14 @@ func (f *fakeClient) GetExecTask(_ context.Context, id string) (baize.TaskSummar
 	return baize.TaskSummary{ID: id, Status: "pending"}, nil
 }
 
+func (f *fakeClient) DispatchExecTask(_ context.Context, id string) (baize.TaskSummary, error) {
+	if f.writeErr != nil {
+		return baize.TaskSummary{}, f.writeErr
+	}
+	f.taskID = id
+	return baize.TaskSummary{ID: id, Status: "dispatched"}, nil
+}
+
 func (f *fakeClient) GetExecTaskOutput(_ context.Context, options baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error) {
 	if f.writeErr != nil {
 		return baize.ExecTaskOutputSummary{}, f.writeErr
@@ -424,6 +437,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_command_plan_execute":             false,
 		"baize_exec_task_direct":                 false,
 		"baize_exec_task_get":                    false,
+		"baize_exec_task_dispatch":               false,
 		"baize_exec_task_output_get":             false,
 		"baize_exec_task_cancel":                 false,
 	}
@@ -484,6 +498,9 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		}
 		if tool.Name == "baize_exec_task_output_get" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"taskId", "targetId", "limit", "mode", "afterSeq", "beforeSeq", "targetLimit", "targetOffset"})
+		}
+		if tool.Name == "baize_exec_task_dispatch" {
+			assertToolSchemaProperties(t, tool.InputSchema, []string{"id"})
 		}
 		if tool.Name == "baize_alert_change" {
 			assertToolSchemaProperties(t, tool.InputSchema, []string{"incidentId", "action"})
@@ -644,6 +661,10 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		t.Fatalf("unexpected execute result: %s", executed)
 	}
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
+	dispatched := callTool(t, ctx, clientSession, "baize_exec_task_dispatch", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
+	if !strings.Contains(dispatched, "dispatched") {
+		t.Fatalf("unexpected task dispatch result: %s", dispatched)
+	}
 	output := callTool(t, ctx, clientSession, "baize_exec_task_output_get", map[string]any{"taskId": "cccccccc-dddd-eeee-ffff-000000000000", "limit": 10, "mode": "tail"})
 	if fake.outputOptions.TaskID != "cccccccc-dddd-eeee-ffff-000000000000" || fake.outputOptions.Limit != 10 || fake.outputOptions.Mode != "tail" || !strings.Contains(output, "on_demand_bounded_output") {
 		t.Fatalf("unexpected task output request/result: options=%#v result=%s", fake.outputOptions, output)
@@ -681,10 +702,11 @@ func TestServerWriteLifecycleRequiresPreviewApprovalBeforeExecution(t *testing.T
 	})
 	_ = callTool(t, ctx, clientSession, "baize_command_plan_execute", map[string]any{"id": planID, "confirmRisk": true})
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": taskID})
+	_ = callTool(t, ctx, clientSession, "baize_exec_task_dispatch", map[string]any{"id": taskID})
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_output_get", map[string]any{"taskId": taskID})
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_cancel", map[string]any{"id": taskID})
 
-	want := []string{"templates.list", "template.preview", "plan.create", "approval.create", "approval.decide", "plan.execute", "task.get", "task.output", "task.cancel"}
+	want := []string{"templates.list", "template.preview", "plan.create", "approval.create", "approval.decide", "plan.execute", "task.get", "task.dispatch", "task.output", "task.cancel"}
 	if !reflect.DeepEqual(backend.events, want) {
 		t.Fatalf("write lifecycle events = %#v, want %#v", backend.events, want)
 	}
@@ -783,6 +805,14 @@ func TestServerSanitizesToolErrors(t *testing.T) {
 	listErr := callToolError(t, ctx, clientSession, "baize_agents_list", map[string]any{})
 	if !strings.Contains(listErr, "denied this read request") {
 		t.Fatalf("unexpected sanitized API error: %s", listErr)
+	}
+	retryable := true
+	fake.listErr = &baize.APIError{StatusCode: 409, Reason: "operation.conflict", MessageKey: "api.errors.operationConflict", NextActionKey: "api.actions.checkState", Retryable: &retryable}
+	conflictErr := callToolError(t, ctx, clientSession, "baize_agents_list", map[string]any{})
+	for _, expected := range []string{"reason=operation.conflict", "messageKey=api.errors.operationConflict", "nextActionKey=api.actions.checkState", "retryable=true"} {
+		if !strings.Contains(conflictErr, expected) {
+			t.Fatalf("structured API error omitted %q: %s", expected, conflictErr)
+		}
 	}
 }
 
