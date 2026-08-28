@@ -62,7 +62,7 @@ verify_latest_metadata() {
     (.version | type == "string") and
     (.tag | type == "string") and
     .channel == "stable" and
-    .minimumBaizeVersion == "0.2.1" and
+    .minimumBaizeVersion == "0.2.2" and
     .transport == "stdio" and
     (.assets | length == 6) and
     ([.assets[] | (.os + "/" + .arch)] | unique | length == 6)

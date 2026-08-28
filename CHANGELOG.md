@@ -4,31 +4,23 @@
 
 This file records user-visible changes in published Baize MCP versions.
 
-## Unreleased
+## 0.1.4 - 2026-08-29
 
 ### 中文
 
-- 未发布候选增加直接远程任务入口；模板只是可选快捷方式，也可以使用服务端允许的精确自定义命令，权限、风险确认、审批和审计仍由白泽处理。
-- 未发布候选增加 `baize_overview_get`，组合运行态总览和重点异常节点查询；结果对缓存不可用、空异常列表和部分请求失败做显式标记，不把空结果解释为整体健康。
-- 增加按 profile 保存的 `multi` / `single` 工作流模式，旧配置和新登录默认使用多人模式。
-- 增加工作流状态与命令计划取消工具；模式只影响 AI 工作流偏好，白泽后端仍负责审批策略、权限和审计。
-- 普通账号无审批策略查看权限时，工作流状态仍返回本地模式并标记策略不可见；会话失效和服务异常继续显式失败。
-- 审批策略摘要只保留公开风险等级枚举，未知值不会进入 AI 结果。
-- 未发布候选增加节点有界观察工具，支持健康、指标、进程、存储、Docker、Nginx、主机画像状态和控制面状态查询，并明确排除敏感正文。
-- 未发布候选增加按需读取远程任务输出的工具，支持目标窗口和游标；结果明确标记摘要、截断和保守替换，避免 AI 因未返回内容重复提交任务。
-- 未发布候选增加 `baize_alert_change`，支持确认或解决单条告警；权限、状态规则和审计仍由白泽服务端处理，成功后需重新查询告警确认最终状态。
+- 增加运行概览工具，读取账号可见范围内的平台运行摘要和有限数量的重点异常节点；缓存缺失、异常列表为空和分区失败会显式标记。
+- 增加节点有界观察、固定语义观察（告警、资产、证书、定时任务、日志、Nginx、Runbook、安全、订阅、组件版本）和只读运行态诊断工具；结果只返回完成判断所需字段，敏感正文、凭据、环境变量、关联标识和完整历史不返回。
+- 补齐远程任务闭环：直接任务入口、待决任务派发、按需有界输出读取，并保留进度查询与取消。
+- 增加告警确认/解决、工作流状态与审批策略摘要、命令计划取消工具；错误信息保留稳定的原因、可重试标记、消息键和下一步动作键。
+- AI 接入说明覆盖 DeepSeek Harness（DSH）；最低兼容白泽版本更新为 `0.2.2`。
 
 ### English
 
-- Adds an unreleased direct remote-task candidate. Templates remain optional shortcuts, while exact custom commands are accepted only when Baize allows them; Baize still handles permissions, risk confirmation, approval, and audit.
-- Adds the unreleased `baize_overview_get` candidate, combining the runtime summary with highlighted abnormal nodes. The result marks unavailable caches, empty abnormal lists, and partial request failures instead of treating an empty result as proof of overall health.
-- Adds profile-scoped `multi` and `single` workflow modes; existing profiles and new sign-ins default to multi-user mode.
-- Adds workflow-status and command-plan cancellation tools. The mode changes AI workflow preference only; Baize still owns approval policy, permissions, and audit.
-- Keeps workflow status useful for accounts that cannot view approval policies by marking the policy summary as `not_visible`; invalid sessions and service failures still return errors.
-- Keeps only the published risk-level enum in approval-policy summaries; unknown values are omitted from AI results.
-- Adds an unreleased bounded agent-observation candidate for health, metrics, processes, storage, Docker, Nginx, host-profile status, and control-plane status, while excluding sensitive bodies.
-- Adds an unreleased on-demand task-output candidate with target windows and cursors. Results state summary, truncation, and conservative redaction so missing output is not mistaken for task failure or used to trigger duplicate submissions.
-- Adds the unreleased `baize_alert_change` candidate for acknowledging or resolving one alert. Baize still handles permissions, state rules, and audit, and callers must query the alert again to confirm the final status.
+- Adds a runtime overview tool with the account-scoped platform summary and highlighted abnormal nodes; missing caches, empty abnormal lists, and failed sections are marked explicitly.
+- Adds bounded agent observation, fixed semantic observation (alerts, assets, certificates, scheduled tasks, logs, Nginx, Runbooks, security, subscription, components), and read-only runtime diagnosis tools; results carry only the fields needed for the current decision and exclude sensitive bodies, credentials, environment values, correlation identifiers, and complete histories.
+- Closes the remote-task loop with the direct-task entry, pending-task dispatch, and on-demand bounded output reads, while keeping progress lookup and cancellation.
+- Adds alert acknowledgement/resolution, workflow status with the approval-policy summary, and command-plan cancellation; errors keep stable reason, retryable, message-key, and next-action fields.
+- AI access documentation now covers DeepSeek Harness (DSH); the minimum compatible Baize version is raised to `0.2.2`.
 
 ## 0.1.3 - 2026-08-16
 

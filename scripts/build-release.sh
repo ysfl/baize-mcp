@@ -122,7 +122,7 @@ else
       tag: $tag,
       channel: "stable",
       releasedAt: $released_at,
-      minimumBaizeVersion: "0.2.1",
+      minimumBaizeVersion: "0.2.2",
       transport: "stdio",
       assets: [$assets[] | {name, os, arch, format}]
     }' > "${DIST_DIR}/latest.json"
