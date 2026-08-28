@@ -41,7 +41,7 @@ baize-mcp login \
 
 ## 连接 MCP 客户端
 
-推荐使用 [Baize AI 接入入口](https://github.com/ysfl/baize#ai-客户端接入) 自动完成注册：安装器会识别本机已安装的 Codex CLI、Claude Code、ZCode、Gemini CLI、Qwen Code、Cursor、Windsurf、VS Code（GitHub Copilot）、Cline 和 Trae，并写入对应客户端的 MCP 配置，同时为 Codex CLI、Claude Code 和 ZCode 安装 Skill。
+推荐使用 [Baize AI 接入入口](https://github.com/ysfl/baize#ai-客户端接入) 自动完成注册：安装器会识别本机已安装的 Codex CLI、Claude Code、ZCode、Gemini CLI、Qwen Code、Cursor、Windsurf、VS Code（GitHub Copilot）、Cline、Trae 和 DeepSeek Harness（DSH），并写入对应客户端的 MCP 配置，同时为 Codex CLI、Claude Code、ZCode 和 DSH 安装 Skill。
 
 手动安装时，在支持 stdio MCP 的客户端中添加以下配置，并把命令替换为本机可执行文件的绝对路径：
 
@@ -54,6 +54,19 @@ baize-mcp login \
     }
   }
 }
+```
+
+DeepSeek Harness（DSH）不使用 `mcpServers` JSON，而是在用户插件层插入一行通用 MCP 客户端插件：写入 `$DSH_HOME/cordis.patch.yml` 对本机所有 DSH 配置生效，写入 `$DSH_HOME/profiles/<名称>/cordis.patch.yml` 则只影响对应配置。
+
+```yaml
+- insert:
+    - id: mcp-baize
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: baize
+        transport: stdio
+        command: /absolute/path/to/baize-mcp
+        args: [serve, --profile, default]
 ```
 
 常见客户端的配置位置：Codex CLI 使用 `codex mcp add`；Claude Code 使用 `claude mcp add`；ZCode 写入 `~/.zcode/cli/config.json` 的 `mcp.servers`；Gemini CLI 写入 `~/.gemini/settings.json`；Qwen Code 写入 `~/.qwen/settings.json`；Cursor 使用 `~/.cursor/mcp.json`；Windsurf 使用 `~/.codeium/windsurf/mcp_config.json`；VS Code 使用用户配置中的 `mcp.json`（顶层 `servers` 键）；Cline 使用自己的 `cline_mcp_settings.json`；Trae 使用 `~/.trae/mcp.json`。客户端版本更新可能调整位置或格式，注册后请在客户端中确认 Baize MCP 已连接。

@@ -41,7 +41,7 @@ HTTPS is required by default. HTTP is accepted for loopback addresses; any other
 
 ## Connect an MCP Client
 
-The recommended path is the [Baize AI access installer](https://github.com/ysfl/baize/blob/main/README.en.md#connect-an-ai-client), which detects installed clients — Codex CLI, Claude Code, ZCode, Gemini CLI, Qwen Code, Cursor, Windsurf, VS Code (GitHub Copilot), Cline, and Trae — writes the MCP registration into each one, and installs the Skill for Codex CLI, Claude Code, and ZCode.
+The recommended path is the [Baize AI access installer](https://github.com/ysfl/baize/blob/main/README.en.md#connect-an-ai-client), which detects installed clients — Codex CLI, Claude Code, ZCode, Gemini CLI, Qwen Code, Cursor, Windsurf, VS Code (GitHub Copilot), Cline, Trae, and DeepSeek Harness (DSH) — writes the MCP registration into each one, and installs the Skill for Codex CLI, Claude Code, ZCode, and DSH.
 
 For manual installation, add the following configuration to a client that supports MCP over stdio. Replace the command with the absolute path to the executable on your computer:
 
@@ -54,6 +54,19 @@ For manual installation, add the following configuration to a client that suppor
     }
   }
 }
+```
+
+DeepSeek Harness (DSH) does not use `mcpServers` JSON. It registers a generic MCP client plugin row in the user patch layer instead: `$DSH_HOME/cordis.patch.yml` applies to every DSH configuration on the machine, while `$DSH_HOME/profiles/<name>/cordis.patch.yml` affects only that configuration.
+
+```yaml
+- insert:
+    - id: mcp-baize
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: baize
+        transport: stdio
+        command: /absolute/path/to/baize-mcp
+        args: [serve, --profile, default]
 ```
 
 Configuration locations for common clients: Codex CLI uses `codex mcp add`; Claude Code uses `claude mcp add`; ZCode reads `mcp.servers` in `~/.zcode/cli/config.json`; Gemini CLI uses `~/.gemini/settings.json`; Qwen Code uses `~/.qwen/settings.json`; Cursor uses `~/.cursor/mcp.json`; Windsurf uses `~/.codeium/windsurf/mcp_config.json`; VS Code uses `mcp.json` in the user profile (top-level `servers` key); Cline uses its own `cline_mcp_settings.json`; Trae uses `~/.trae/mcp.json`. Client updates may change these locations or formats; after registering, confirm in the client that Baize MCP is connected.
