@@ -19,7 +19,7 @@ Baize MCP 是白泽的开源 MCP 接入组件，用于让支持 MCP 的 AI 客�
 
 ## 安装
 
-推荐从 [Baize AI 接入入口](https://github.com/ysfl/baize#ai-客户端接入) 安装 MCP、Skill，并按客户端能力自动注册 MCP。这个入口与白泽产品安装器相互独立，不会部署或修改白泽实例。
+推荐从 [Baize AI 接入入口](https://github.com/ysfl/baize#ai-客户端接入) 安装 MCP、Skill，并为检测到的 AI 客户端自动注册 MCP。这个入口与白泽产品安装器相互独立，不会部署或修改白泽实例。
 
 如需手动安装 MCP，从 [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) 下载与你的系统和架构匹配的压缩包并完整解压。程序启动时会自动校验压缩包随附的可执行文件 SHA-256；请保留压缩包内的校验文件。这个自检用于发现文件损坏或安装不完整，`SHA256SUMS` 仍作为可选的发布文件校验入口。也可以使用 Go 1.25.13 或更高版本从源码构建：
 
@@ -41,7 +41,9 @@ baize-mcp login \
 
 ## 连接 MCP 客户端
 
-在支持 stdio MCP 的客户端中添加以下配置，并把命令替换为本机可执行文件的绝对路径：
+推荐使用 [Baize AI 接入入口](https://github.com/ysfl/baize#ai-客户端接入) 自动完成注册：安装器会识别本机已安装的 Codex CLI、Claude Code、ZCode、Gemini CLI、Qwen Code、Cursor、Windsurf、VS Code（GitHub Copilot）、Cline 和 Trae，并写入对应客户端的 MCP 配置，同时为 Codex CLI、Claude Code 和 ZCode 安装 Skill。
+
+手动安装时，在支持 stdio MCP 的客户端中添加以下配置，并把命令替换为本机可执行文件的绝对路径：
 
 ```json
 {
@@ -53,6 +55,8 @@ baize-mcp login \
   }
 }
 ```
+
+常见客户端的配置位置：Codex CLI 使用 `codex mcp add`；Claude Code 使用 `claude mcp add`；ZCode 写入 `~/.zcode/cli/config.json` 的 `mcp.servers`；Gemini CLI 写入 `~/.gemini/settings.json`；Qwen Code 写入 `~/.qwen/settings.json`；Cursor 使用 `~/.cursor/mcp.json`；Windsurf 使用 `~/.codeium/windsurf/mcp_config.json`；VS Code 使用用户配置中的 `mcp.json`（顶层 `servers` 键）；Cline 使用自己的 `cline_mcp_settings.json`；Trae 使用 `~/.trae/mcp.json`。客户端版本更新可能调整位置或格式，注册后请在客户端中确认 Baize MCP 已连接。
 
 这份客户端配置不包含白泽地址、用户名、密码或会话凭据。需要连接多个实例时，可以在登录和 `serve` 命令中使用不同的 `--profile` 名称。
 

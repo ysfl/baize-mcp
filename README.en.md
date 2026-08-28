@@ -41,7 +41,9 @@ HTTPS is required by default. HTTP is accepted for loopback addresses; any other
 
 ## Connect an MCP Client
 
-Add the following configuration to a client that supports MCP over stdio. Replace the command with the absolute path to the executable on your computer:
+The recommended path is the [Baize AI access installer](https://github.com/ysfl/baize/blob/main/README.en.md#connect-an-ai-client), which detects installed clients — Codex CLI, Claude Code, ZCode, Gemini CLI, Qwen Code, Cursor, Windsurf, VS Code (GitHub Copilot), Cline, and Trae — writes the MCP registration into each one, and installs the Skill for Codex CLI, Claude Code, and ZCode.
+
+For manual installation, add the following configuration to a client that supports MCP over stdio. Replace the command with the absolute path to the executable on your computer:
 
 ```json
 {
@@ -53,6 +55,8 @@ Add the following configuration to a client that supports MCP over stdio. Replac
   }
 }
 ```
+
+Configuration locations for common clients: Codex CLI uses `codex mcp add`; Claude Code uses `claude mcp add`; ZCode reads `mcp.servers` in `~/.zcode/cli/config.json`; Gemini CLI uses `~/.gemini/settings.json`; Qwen Code uses `~/.qwen/settings.json`; Cursor uses `~/.cursor/mcp.json`; Windsurf uses `~/.codeium/windsurf/mcp_config.json`; VS Code uses `mcp.json` in the user profile (top-level `servers` key); Cline uses its own `cline_mcp_settings.json`; Trae uses `~/.trae/mcp.json`. Client updates may change these locations or formats; after registering, confirm in the client that Baize MCP is connected.
 
 The client configuration contains no Baize address, username, password, or session credential. To connect to more than one instance, use a different `--profile` name for both the sign-in and `serve` commands.
 
