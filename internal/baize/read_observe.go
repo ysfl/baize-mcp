@@ -183,25 +183,31 @@ func (c *Client) observeNginxSites(ctx context.Context, options NginxObserveOpti
 		}
 		query.Set("agent_id", id)
 	}
-	limit := options.PageSize
-	if limit == 0 {
-		limit = 50
+	page, pageSize, err := normalizeReadPage(options.Page, options.PageSize)
+	if err != nil {
+		return NginxObserveResult{}, err
 	}
-	if limit < 1 || limit > maxObserveItems {
-		return NginxObserveResult{}, newInputError("nginx site limit must be between 1 and 50")
+	query.Set("page", strconv.Itoa(page))
+	query.Set("page_size", strconv.Itoa(pageSize))
+	var data struct {
+		Items    []nginxSiteRecord `json:"items"`
+		Total    int               `json:"total"`
+		Page     int               `json:"page"`
+		PageSize int               `json:"pageSize"`
 	}
-	query.Set("limit", strconv.Itoa(limit))
-	var data []nginxSiteRecord
 	if err := c.do(ctx, http.MethodGet, []string{"nginx", "sites"}, query, nil, &data, true); err != nil {
 		return NginxObserveResult{}, err
 	}
-	for i, item := range data {
+	for i, item := range data.Items {
 		if i >= maxObserveItems {
 			result.Truncated = true
 			break
 		}
 		result.Sites = append(result.Sites, summarizeNginxSite(item))
 	}
+	actualPage, actualSize := normalizedResponsePage(data.Page, data.PageSize, page, pageSize)
+	meta := makeReadPageMeta(data.Total, actualPage, actualSize, result.Truncated)
+	result.Page = &meta
 	return result, nil
 }
 

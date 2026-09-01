@@ -17,6 +17,7 @@ func TestReadQueriesUseFixedEndpointsAndExcludeSensitiveFields(t *testing.T) {
 		cronID    = "33333333-4444-5555-6666-777777777777"
 		runbookID = "44444444-5555-6666-7777-888888888888"
 		siteID    = "55555555-6666-7777-8888-999999999999"
+		siteID2   = "66666666-7777-8888-9999-aaaaaaaaaaaa"
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer session-token" {
@@ -63,7 +64,24 @@ func TestReadQueriesUseFixedEndpointsAndExcludeSensitiveFields(t *testing.T) {
 		case http.MethodGet + " /api/v1/ops/runbooks/" + runbookID + "/audit-logs":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"id":"ffffffff-0000-1111-2222-333333333333","runbookId":"` + runbookID + `","action":"create_definition","operatorId":"private-user","operatorName":"Private User","clientIp":"10.0.0.1","detail":{"secret":"private-audit"}}],"total":1,"page":1,"pageSize":20}}`))
 		case http.MethodGet + " /api/v1/nginx/sites":
-			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":"` + siteID + `","agentId":"` + agentID + `","name":"Web site","primaryHost":"example.com","status":"enabled","discoverySource":"agent","certificateStatus":"valid","enabled":true,"defaultServer":false,"todayRequestCount":10,"todayBlockCount":2,"configPath":"/private/nginx.conf"}]}`))
+			page := r.URL.Query().Get("page")
+			pageSize := r.URL.Query().Get("page_size")
+			if pageSize != "20" && pageSize != "1" {
+				t.Fatalf("nginx sites page=%q pageSize=%q", r.URL.Query().Get("page"), r.URL.Query().Get("page_size"))
+			}
+			if pageSize == "20" && page != "1" {
+				t.Fatalf("default nginx sites request must use page 1, got page=%q", page)
+			}
+			item := func(id, host string) string {
+				return `{"id":"` + id + `","agentId":"` + agentID + `","name":"Web site","primaryHost":"` + host + `","status":"enabled","discoverySource":"agent","certificateStatus":"valid","enabled":true,"defaultServer":false,"todayRequestCount":10,"todayBlockCount":2,"configPath":"/private/nginx.conf"}`
+			}
+			items := item(siteID, "example.com")
+			if pageSize == "20" {
+				items += "," + item(siteID2, "second.example.com")
+			} else if page == "2" {
+				items = item(siteID2, "second.example.com")
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[` + items + `],"total":2,"page":` + page + `,"pageSize":` + pageSize + `}}`))
 		case http.MethodGet + " /api/v1/nginx/sites/" + siteID:
 			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + siteID + `","agentId":"` + agentID + `","name":"Web site","primaryHost":"example.com","status":"enabled","configPath":"/private/nginx.conf","serverBlocks":[{"configPath":"/private/site.conf"}]}}`))
 		case http.MethodGet + " /api/v1/agents/" + agentID + "/analysis/nginx/overview":
@@ -161,6 +179,14 @@ func TestReadQueriesUseFixedEndpointsAndExcludeSensitiveFields(t *testing.T) {
 			t.Fatalf("ObserveNginx(%q) error = %v", options.View, err)
 		}
 		results = append(results, result)
+	}
+	firstPage, err := client.ObserveNginx(context.Background(), NginxObserveOptions{View: "sites", Page: 1, PageSize: 1})
+	if err != nil || len(firstPage.Sites) != 1 || firstPage.Sites[0].ID != siteID || firstPage.Page == nil || firstPage.Page.Total != 2 || firstPage.Page.Page != 1 || firstPage.Page.PageSize != 1 || !firstPage.Page.HasMore || firstPage.Page.NextPage != 2 {
+		t.Fatalf("nginx sites first-page pagination = %#v, err=%v", firstPage, err)
+	}
+	secondPage, err := client.ObserveNginx(context.Background(), NginxObserveOptions{View: "sites", Page: 2, PageSize: 1})
+	if err != nil || len(secondPage.Sites) != 1 || secondPage.Sites[0].ID != siteID2 || secondPage.Page == nil || secondPage.Page.Total != 2 || secondPage.Page.Page != 2 || secondPage.Page.PageSize != 1 || secondPage.Page.HasMore || secondPage.Page.NextPage != 0 {
+		t.Fatalf("nginx sites pagination = %#v, err=%v", secondPage, err)
 	}
 	for _, options := range []SecurityObserveOptions{{View: "exposure_overview"}, {View: "exposure_findings"}, {View: "exposure_scans"}, {View: "network_overview", AgentID: agentID}, {View: "network_observations", AgentID: agentID}, {View: "network_paths", AgentID: agentID}, {View: "network_risks", AgentID: agentID}} {
 		result, err := client.ObserveSecurity(context.Background(), options)

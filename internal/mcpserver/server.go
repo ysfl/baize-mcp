@@ -305,8 +305,8 @@ type nginxObserveInput struct {
 	SiteID   string     `json:"siteId,omitempty" jsonschema:"optional Nginx site UUID for site view"`
 	From     *time.Time `json:"from,omitempty" jsonschema:"optional RFC3339 start time for slow_requests or response_time"`
 	To       *time.Time `json:"to,omitempty" jsonschema:"optional RFC3339 end time for slow_requests or response_time"`
-	Page     int        `json:"page,omitempty" jsonschema:"optional page number for slow_requests"`
-	PageSize int        `json:"pageSize,omitempty" jsonschema:"optional page size from 1 to 50"`
+	Page     int        `json:"page,omitempty" jsonschema:"optional page for sites or slow_requests"`
+	PageSize int        `json:"pageSize,omitempty" jsonschema:"optional size for sites/slow_requests, 1-50"`
 }
 
 type securityObserveInput struct {
