@@ -42,6 +42,8 @@ func Run(ctx context.Context, args []string, stdin *os.File, stdout, stderr io.W
 		err = runLogin(ctx, args[1:], stdin, stdout, stderr, store, credentials)
 	case "status":
 		err = runStatus(ctx, args[1:], stdout, stderr, store, credentials)
+	case "retry":
+		err = runRetry(ctx, args[1:], stdout, stderr, store, credentials)
 	case "logout":
 		err = runLogout(ctx, args[1:], stdout, stderr, store, credentials)
 	case "serve":
@@ -231,6 +233,11 @@ func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer, pro
 	return writeJSON(stdout, map[string]any{"authenticated": true})
 }
 
+// runRetry 重新读取本机已保存的会话并检查白泽连接，不会再次要求输入密码。
+func runRetry(ctx context.Context, args []string, stdout, stderr io.Writer, profiles *profile.Store, credentials credential.Store) error {
+	return runStatus(ctx, args, stdout, stderr, profiles, credentials)
+}
+
 func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer, profiles *profile.Store, credentials credential.Store) error {
 	flags := flag.NewFlagSet("logout", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -277,6 +284,13 @@ func authenticatedClient(profileName string, profiles *profile.Store, credential
 	if err != nil {
 		return nil, profile.Profile{}, err
 	}
+	client.SetCredentialLoader(func() (string, error) {
+		current, loadErr := credentials.Get(profileName)
+		if errors.Is(loadErr, credential.ErrNotFound) {
+			return "", nil
+		}
+		return current, loadErr
+	})
 	return client, item, nil
 }
 
@@ -291,7 +305,7 @@ func writeJSON(w io.Writer, value any) error {
 }
 
 func printUsage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "Usage: baize-mcp <login|status|logout|serve|config <get|set>|config-path|version>")
+	_, _ = fmt.Fprintln(w, "Usage: baize-mcp <login|status|retry|logout|serve|config <get|set>|config-path|version>")
 }
 
 func fail(w io.Writer, err error) int {

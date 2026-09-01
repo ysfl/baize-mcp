@@ -66,6 +66,60 @@ func TestRunStatusReturnsAuthenticationStateOnly(t *testing.T) {
 	}
 }
 
+func TestRunRetryReturnsCurrentAuthenticationState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer refreshed-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+
+	profiles := profile.NewStore(filepath.Join(t.TempDir(), "profiles.json"))
+	if err := profiles.Put("default", profile.Profile{APIURL: server.URL + "/api/v1", AllowHTTP: true}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	credentials := &memoryCredentialStore{values: map[string]string{"default": "refreshed-token"}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := runRetry(context.Background(), []string{"--profile", "default"}, &stdout, &stderr, profiles, credentials); err != nil {
+		t.Fatalf("runRetry() error = %v, stderr = %s", err, stderr.String())
+	}
+	if got := stdout.String(); got != "{\"authenticated\":true}\n" {
+		t.Fatalf("runRetry() output = %q", got)
+	}
+}
+
+func TestAuthenticatedClientReloadsCredentialAfterLogin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer refreshed-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+
+	profiles := profile.NewStore(filepath.Join(t.TempDir(), "profiles.json"))
+	if err := profiles.Put("default", profile.Profile{APIURL: server.URL + "/api/v1", AllowHTTP: true}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	credentials := &memoryCredentialStore{values: map[string]string{"default": "old-token"}}
+	client, _, err := authenticatedClient("default", profiles, credentials)
+	if err != nil {
+		t.Fatalf("authenticatedClient() error = %v", err)
+	}
+	if err := credentials.Set("default", "refreshed-token"); err != nil {
+		t.Fatalf("credentials.Set() error = %v", err)
+	}
+
+	if err := client.CheckSession(context.Background()); err != nil {
+		t.Fatalf("CheckSession() error = %v", err)
+	}
+}
+
 func TestRunConfigChangesWorkflowModeWithoutExposingProfileSecrets(t *testing.T) {
 	profiles := profile.NewStore(filepath.Join(t.TempDir(), "profiles.json"))
 	if err := profiles.Put("default", profile.Profile{APIURL: "https://private.example.com/api/v1", WorkflowMode: profile.WorkflowModeMulti}); err != nil {

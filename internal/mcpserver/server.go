@@ -367,7 +367,7 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	mcp.AddTool(server, readOnlyTool(
 		"baize_connection_status",
 		"Check Baize connection",
-		"Checks whether the saved local session can access Baize. Connection addresses and credentials are not returned.",
+		"Reloads the saved local session and checks whether it can access Baize. Connection addresses and credentials are not returned.",
 	), func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, connectionStatusOutput, error) {
 		if err := client.CheckSession(ctx); err != nil {
 			return toolOutput(connectionStatusOutput{}, err, "read")

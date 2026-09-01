@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,6 +35,194 @@ func TestValidateAPIURL(t *testing.T) {
 				t.Fatalf("ValidateAPIURL() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestClientReloadsCredentialBeforeAuthenticatedRequest(t *testing.T) {
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "old-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	var loadCount atomic.Int32
+	client.SetCredentialLoader(func() (string, error) {
+		loadCount.Add(1)
+		return "new-token", nil
+	})
+
+	if err := client.CheckSession(context.Background()); err != nil {
+		t.Fatalf("CheckSession() error = %v", err)
+	}
+	if authorization != "Bearer new-token" {
+		t.Fatalf("Authorization = %q, want refreshed token", authorization)
+	}
+	if loadCount.Load() == 0 {
+		t.Fatal("credential loader was not called")
+	}
+}
+
+func TestClientRetriesReadAfterCredentialChange(t *testing.T) {
+	var requestCount atomic.Int32
+	var loadCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestNumber := requestCount.Add(1)
+		authorization := r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		if requestNumber == 1 {
+			if authorization != "Bearer old-token" {
+				t.Errorf("first Authorization = %q, want old token", authorization)
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"details":{"reason":"auth.required"}}`))
+			return
+		}
+		if authorization != "Bearer new-token" {
+			t.Errorf("retry Authorization = %q, want new token", authorization)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "old-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	client.SetCredentialLoader(func() (string, error) {
+		if loadCount.Add(1) == 1 {
+			return "old-token", nil
+		}
+		return "new-token", nil
+	})
+
+	if err := client.CheckSession(context.Background()); err != nil {
+		t.Fatalf("CheckSession() error = %v", err)
+	}
+	if requestCount.Load() != 2 {
+		t.Fatalf("request count = %d, want one request and one retry", requestCount.Load())
+	}
+	if loadCount.Load() != 2 {
+		t.Fatalf("credential load count = %d, want initial load and one refresh", loadCount.Load())
+	}
+}
+
+func TestClientDoesNotReplayWriteAfterCredentialChange(t *testing.T) {
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer old-token" {
+			t.Errorf("unexpected request method=%s authorization=%q", r.Method, r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"details":{"reason":"auth.required"}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "old-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	var loadCount atomic.Int32
+	client.SetCredentialLoader(func() (string, error) {
+		if loadCount.Add(1) == 1 {
+			return "old-token", nil
+		}
+		return "new-token", nil
+	})
+
+	err = client.Logout(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("Logout() error = %v, want HTTP 401", err)
+	}
+	if requestCount.Load() != 1 {
+		t.Fatalf("request count = %d, want no replay for POST", requestCount.Load())
+	}
+	if loadCount.Load() != 2 {
+		t.Fatalf("credential load count = %d, want initial load and refresh", loadCount.Load())
+	}
+	if got := client.currentCredential(); got != "new-token" {
+		t.Fatalf("cached credential = %q, want refreshed token", got)
+	}
+}
+
+func TestClientStopsWhenCredentialIsRemoved(t *testing.T) {
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "old-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	client.SetCredentialLoader(func() (string, error) {
+		return "", nil
+	})
+
+	if err := client.CheckSession(context.Background()); err == nil || err.Error() != "Baize session credential is unavailable" {
+		t.Fatalf("CheckSession() error = %v, want missing credential error", err)
+	}
+	if requestCount.Load() != 0 {
+		t.Fatalf("request count = %d, want no request after local logout", requestCount.Load())
+	}
+}
+
+func TestCredentialReloadKeepsLaterConcurrentSession(t *testing.T) {
+	client, err := NewClient("https://baize.example.com/api/v1", "old-token", false, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	var calls atomic.Int32
+	firstStarted := make(chan struct{})
+	secondStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	client.SetCredentialLoader(func() (string, error) {
+		switch calls.Add(1) {
+		case 1:
+			close(firstStarted)
+			<-releaseFirst
+			return "", nil
+		default:
+			close(secondStarted)
+			return "new-token", nil
+		}
+	})
+
+	var group sync.WaitGroup
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		client.refreshCredential("old-token")
+	}()
+	<-firstStarted
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		client.refreshCredential("old-token")
+	}()
+	select {
+	case <-secondStarted:
+		t.Fatal("concurrent credential reload was not serialized")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(releaseFirst)
+	select {
+	case <-secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("second credential reload did not complete")
+	}
+	group.Wait()
+	if got := client.currentCredential(); got != "new-token" {
+		t.Fatalf("cached credential = %q, want later session", got)
 	}
 }
 

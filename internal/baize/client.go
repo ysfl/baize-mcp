@@ -58,10 +58,10 @@ var commandApprovalStatuses = map[string]struct{}{
 }
 
 type Client struct {
-	baseURL   *url.URL
-	http      *http.Client
-	token     string
-	userAgent string
+	baseURL     *url.URL
+	http        *http.Client
+	credentials *credentialState
+	userAgent   string
 }
 
 type AgentSummary struct {
@@ -538,7 +538,7 @@ func NewClient(apiURL, token string, allowHTTP bool, userAgent string) (*Client,
 			return nil
 		},
 	}
-	return &Client{baseURL: parsed, http: client, token: token, userAgent: userAgent}, nil
+	return &Client{baseURL: parsed, http: client, credentials: newCredentialState(token), userAgent: userAgent}, nil
 }
 
 func ValidateAPIURL(raw string, allowHTTP bool) (string, error) {
@@ -1443,18 +1443,33 @@ func (c *Client) do(ctx context.Context, method string, segments []string, query
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	requestToken := ""
 	if authenticated {
-		if c.token == "" {
+		// MCP 调用频率有限；每次认证请求先读取本机凭据，让登录和本地退出在现有 stdio 进程中即时生效。
+		requestToken, _ = c.refreshCredential(c.currentCredential())
+		if requestToken == "" {
 			return errors.New("Baize session credential is unavailable")
 		}
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", "Bearer "+requestToken)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return errors.New("Baize request timed out or was cancelled")
+		return normalizeRequestError(err)
+	}
+	if authenticated && resp.StatusCode == http.StatusUnauthorized {
+		refreshedToken, changed := c.refreshCredential(requestToken)
+		// 写请求即使返回 401 也不自动重放，避免异常服务端在已产生副作用后重复执行。
+		if changed && refreshedToken != "" && canRetryAfterAuthFailure(method) {
+			retryReq, cloneErr := cloneRequestForRetry(req)
+			if cloneErr == nil {
+				_ = resp.Body.Close()
+				retryReq.Header.Set("Authorization", "Bearer "+refreshedToken)
+				resp, err = c.http.Do(retryReq)
+				if err != nil {
+					return normalizeRequestError(err)
+				}
+			}
 		}
-		return errors.New("Baize request failed before a response was received")
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))

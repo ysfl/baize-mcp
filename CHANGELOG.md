@@ -4,6 +4,18 @@
 
 This file records user-visible changes in published Baize MCP versions.
 
+## Unreleased
+
+### 中文
+
+- 已运行的 MCP 进程会在认证请求前重新读取本机保存的会话；只读请求遇到会话刚更新导致的 401 时会自动重试一次。
+- 增加 `baize-mcp retry` 手动检查命令，不会再次要求输入密码；可能产生副作用的写请求不会自动重放。
+
+### English
+
+- Running MCP processes reload the locally saved session before authenticated requests, and retry a read-only request once when a session change causes a 401 response.
+- Adds `baize-mcp retry` for a manual session check without asking for the password again; requests that may have side effects are never replayed automatically.
+
 ## 0.1.4 - 2026-08-29
 
 ### 中文

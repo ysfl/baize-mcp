@@ -41,6 +41,18 @@ baize-mcp login \
 
 HTTPS is required by default. HTTP is accepted for loopback addresses; any other HTTP address requires the user to add `--allow-http` explicitly. Run the sign-in command again when the session expires.
 
+### Session reload after sign-in (next stable release)
+
+The release containing this improvement reloads the locally saved session before authenticated requests, so signing in normally does not require restarting the AI client. If a read-only request receives a 401 while a session has just changed, MCP retries it once with the new session; requests that may have side effects are never replayed automatically.
+
+To manually reload the saved session and check the connection, run:
+
+```bash
+baize-mcp retry --profile default
+```
+
+This command does not ask for the password again; it only validates the saved session. You can also call `baize_connection_status` again in the AI client. After updating the MCP executable, tool definitions, or connection configuration, reconnect it according to the client instructions.
+
 ## Connect an MCP Client
 
 The recommended path is the [Baize AI access installer](https://github.com/ysfl/baize/blob/main/README.en.md#connect-an-ai-client), which detects installed clients — Codex CLI, Claude Code, ZCode, Gemini CLI, Qwen Code, Cursor, Windsurf, VS Code (GitHub Copilot), Cline, Trae, and DeepSeek Harness (DSH) — writes the MCP registration into each one, and installs the Skill for Codex CLI, Claude Code, ZCode, and DSH.
@@ -81,7 +93,7 @@ After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/sk
 
 | Tool | Purpose |
 |---|---|
-| `baize_connection_status` | Verify that the current profile has a valid session |
+| `baize_connection_status` | Reload the saved session and verify that the current profile can connect |
 | `baize_agents_list` | Read a paginated list of agents with privacy-protected status information |
 | `baize_agent_get` | Read privacy-protected basic status for one agent |
 | `baize_agent_observe` | Read one bounded observation view for an agent (health, metrics, processes, storage, Docker, Nginx, host profile, control plane); sensitive bodies, credentials, environment values, and complete histories are excluded |

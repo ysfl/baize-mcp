@@ -41,6 +41,18 @@ baize-mcp login \
 
 默认要求 HTTPS。本机回环地址可以使用 HTTP；其它 HTTP 地址必须由用户显式增加 `--allow-http`。会话失效后，重新执行登录命令即可。
 
+### 登录后的会话重读（下一正式版本）
+
+包含此改进的版本会在认证请求前重新读取本机保存的会话，因此登录后通常不需要重启 AI 客户端。只读请求如果在会话刚更新时收到 401，MCP 会自动使用新会话重试一次；可能产生副作用的写请求不会自动重放。
+
+需要手动读取当前会话并检查连接时，可以运行：
+
+```bash
+baize-mcp retry --profile default
+```
+
+该命令不会再次要求密码，只会验证已保存的会话。也可以在 AI 客户端再次调用 `baize_connection_status`。更新 MCP 可执行文件、工具定义或连接配置后，仍需按客户端说明重新连接。
+
 ## 连接 MCP 客户端
 
 推荐使用 [Baize AI 接入入口](https://github.com/ysfl/baize#ai-客户端接入) 自动完成注册：安装器会识别本机已安装的 Codex CLI、Claude Code、ZCode、Gemini CLI、Qwen Code、Cursor、Windsurf、VS Code（GitHub Copilot）、Cline、Trae 和 DeepSeek Harness（DSH），并写入对应客户端的 MCP 配置，同时为 Codex CLI、Claude Code、ZCode 和 DSH 安装 Skill。
@@ -81,7 +93,7 @@ DeepSeek Harness（DSH）不使用 `mcpServers` JSON，而是在用户插件层�
 
 | 工具 | 作用 |
 |---|---|
-| `baize_connection_status` | 验证当前 profile 的会话是否可用 |
+| `baize_connection_status` | 重新读取已保存会话并验证当前 profile 是否可用 |
 | `baize_agents_list` | 分页查询经过隐私保护的节点状态信息 |
 | `baize_agent_get` | 查询单个节点通过隐私保护的基础状态 |
 | `baize_agent_observe` | 读取单个节点指定维度的有界观察摘要（健康、指标、进程、存储、Docker、Nginx、主机画像、控制面）；敏感正文、凭据、环境变量和完整历史不返回 |
