@@ -19,6 +19,8 @@ Use [GitHub Releases](https://github.com/ysfl/baize-mcp/releases) as the source 
 
 Template, plan, and task results contain only bounded fields needed for the current decision. They exclude command bodies, working directories, environment values, operator identity, task output, and credentials. Preview and list results are bounded by item count, text length, and complete UTF-8 boundaries.
 
+Parameter and output limits: a single parameter value and a custom command are capped at 4096 characters. Task output is read in pages with a total size cap per response; keep reading with the returned pagination cursor instead of resubmitting the task. Error results carry stable reason identifiers (permission, state conflict, risk confirmation, and similar); follow the returned guidance instead of retrying the same action through a different tool.
+
 ## Install
 
 The recommended path is the [Baize AI access entry](https://github.com/ysfl/baize/blob/main/README.en.md#connect-an-ai-client), which installs MCP and the Skill and registers MCP when the selected client supports it. This entry is independent from the Baize product installer and does not deploy or modify a Baize instance.
