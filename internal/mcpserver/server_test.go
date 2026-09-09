@@ -726,8 +726,13 @@ func TestServerToolListStaysWithinContextBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal tools list: %v", err)
 	}
-	if len(raw) > 64<<10 {
-		t.Fatalf("tools/list is %d bytes, exceeds 64 KiB budget", len(raw))
+	const targetBudget = 48 << 10
+	const hardLimit = 64 << 10
+	if len(raw) > targetBudget {
+		t.Logf("WARNING: tools/list is %d bytes, exceeds 48 KiB target budget (room for growth diminishing)", len(raw))
+	}
+	if len(raw) > hardLimit {
+		t.Fatalf("tools/list is %d bytes, exceeds 64 KiB hard limit", len(raw))
 	}
 }
 

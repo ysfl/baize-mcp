@@ -789,7 +789,7 @@ func (c *Client) CreateCommandPlan(ctx context.Context, options CommandPlanCreat
 	if err != nil {
 		return PlanSummary{}, err
 	}
-	agentIDs, err := validateUUIDList(options.TargetAgentIDs, maxCommandTargets, "target agent IDs")
+	agentIDs, err := validateUUIDList(options.TargetAgentIDs, maxCommandTargets, "target agents")
 	if err != nil {
 		return PlanSummary{}, err
 	}
@@ -1056,7 +1056,7 @@ func (c *Client) ExecuteCommandPlan(ctx context.Context, id string, options Comm
 
 // DirectExecTask 通过服务端专用权限创建唯一可追踪任务；MCP 不在本地判断白名单或审计策略。
 func (c *Client) DirectExecTask(ctx context.Context, options DirectExecTaskOptions) (TaskSummary, error) {
-	agentIDs, err := validateUUIDList(options.TargetAgentIDs, maxCommandTargets, "target agent IDs")
+	agentIDs, err := validateUUIDList(options.TargetAgentIDs, maxCommandTargets, "target agents")
 	if err != nil {
 		return TaskSummary{}, err
 	}
@@ -1177,7 +1177,12 @@ func validateUUIDList(values []string, max int, label string) ([]string, error) 
 	result := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
 	for _, value := range values {
-		normalized, err := validateUUID(value, strings.TrimSuffix(label, "s")+" ID")
+		singularLabel := strings.TrimSuffix(label, " IDs")
+		singularLabel = strings.TrimSuffix(singularLabel, "s")
+		if !strings.HasSuffix(singularLabel, " ID") {
+			singularLabel += " ID"
+		}
+		normalized, err := validateUUID(value, singularLabel)
 		if err != nil {
 			return nil, err
 		}
