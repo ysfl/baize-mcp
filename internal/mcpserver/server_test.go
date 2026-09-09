@@ -771,6 +771,54 @@ func TestServerWorkflowStatusStillReportsUnexpectedPolicyErrors(t *testing.T) {
 	}
 }
 
+func TestToolErrorConflictMessageFollowsReasonFamily(t *testing.T) {
+	retryable := true
+	cases := []struct {
+		name       string
+		apiErr     *baize.APIError
+		containSub string
+	}{
+		{
+			name:       "task conflict points at state triage",
+			apiErr:     &baize.APIError{StatusCode: 409, Reason: "operation.conflict"},
+			containSub: "cancel stuck tasks",
+		},
+		{
+			name:       "activation rejection points at authorization center",
+			apiErr:     &baize.APIError{StatusCode: 409, Reason: "activation_grant.already_claimed"},
+			containSub: "authorization center rejected",
+		},
+		{
+			name:       "license rejection points at authorization center",
+			apiErr:     &baize.APIError{StatusCode: 409, Reason: "license.revoked"},
+			containSub: "authorization center rejected",
+		},
+		{
+			name:       "entitlement restriction names the entitlement",
+			apiErr:     &baize.APIError{StatusCode: 409, Reason: "entitlement.feature_disabled"},
+			containSub: "entitlement does not allow",
+		},
+		{
+			name:       "unknown conflict keeps generic conflict wording",
+			apiErr:     &baize.APIError{StatusCode: 409, Reason: "some.future.conflict"},
+			containSub: "conflicts with the requested operation",
+		},
+		{
+			name:       "stable reason identifiers stay attached",
+			apiErr:     &baize.APIError{StatusCode: 409, Reason: "operation.conflict", MessageKey: "api.errors.operationConflict", NextActionKey: "api.actions.checkState", Retryable: &retryable},
+			containSub: "reason=operation.conflict",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := toolErrorWithAction(tc.apiErr, "write")
+			if err == nil || !strings.Contains(err.Error(), tc.containSub) {
+				t.Fatalf("conflict message for reason %q = %v, want containing %q", tc.apiErr.Reason, err, tc.containSub)
+			}
+		})
+	}
+}
+
 func assertToolSchemaProperties(t *testing.T, schema any, names []string) {
 	t.Helper()
 	raw, err := json.Marshal(schema)

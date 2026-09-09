@@ -779,7 +779,7 @@ func toolErrorWithAction(err error, action string) error {
 		case 404:
 			base = "the requested Baize resource was not found"
 		case 409:
-			base = "Baize could not complete this request because the current task state requires confirmation or approval"
+			base = conflictMessageForReason(apiErr.Reason)
 		case 429:
 			base = "Baize temporarily limited this request"
 		default:
@@ -805,6 +805,25 @@ func toolErrorWithAction(err error, action string) error {
 		return errors.New(base)
 	}
 	return errors.New("the Baize request could not be completed")
+}
+
+// conflictMessageForReason 按 reason 分族给出 409 的基础句，避免统一的
+// "需要确认或审批" 表述误导授权中心拒绝、权益限制等与本任务状态无关的场景。
+func conflictMessageForReason(reason string) string {
+	switch {
+	case reason == "" || reason == "operation.conflict":
+		return "Baize could not complete this request because the current state conflicts with the requested operation; query the task or plan state first, cancel stuck tasks if any, and include risk confirmation when Baize requires it"
+	case strings.HasPrefix(reason, "activation_grant."),
+		strings.HasPrefix(reason, "license."),
+		strings.HasPrefix(reason, "customer_server."),
+		strings.HasPrefix(reason, "install."),
+		strings.HasPrefix(reason, "subscription."):
+		return "Baize could not complete this request because the authorization center rejected it; check the activation code, license, installation binding, or subscription state"
+	case strings.HasPrefix(reason, "entitlement."):
+		return "Baize could not complete this request because the current account entitlement does not allow it"
+	default:
+		return "Baize could not complete this request because the current state conflicts with the requested operation"
+	}
 }
 
 func writeTool(name, title, description string, destructive bool) *mcp.Tool {
