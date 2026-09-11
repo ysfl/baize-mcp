@@ -11,12 +11,16 @@ This file records user-visible changes in published Baize MCP versions.
 - 已运行的 MCP 进程会在认证请求前重新读取本机保存的会话；只读请求遇到会话刚更新导致的 401 时会自动重试一次。
 - 增加 `baize-mcp retry` 手动检查命令，不会再次要求输入密码；可能产生副作用的写请求不会自动重放。
 - 修复 Nginx 站点观察的分页，`sites` 视图现在使用服务端真实页码并返回总数与继续标记。
+- 409 冲突提示按原因分族：授权中心拒绝、权益限制与任务状态冲突不再共用同一句话，提示直接指向核对激活码、License、安装绑定、订阅或清理卡住任务等对应下一步。
+- 修正目标参数校验失败时错误文案的标签推导，目标相关提示表述保持一致。
 
 ### English
 
 - Running MCP processes reload the locally saved session before authenticated requests, and retry a read-only request once when a session change causes a 401 response.
 - Adds `baize-mcp retry` for a manual session check without asking for the password again; requests that may have side effects are never replayed automatically.
 - Fixes pagination for the Nginx sites observation so the `sites` view uses server-side pages and returns totals and continuation metadata.
+- Groups 409 conflict messages by reason: authorization-center rejections, entitlement limits, and task-state conflicts no longer share one sentence; guidance now points to the matching next step such as checking the activation code, license, installation binding, subscription, or clearing a stuck task.
+- Fixes label derivation in validation messages for invalid target lists so wording stays consistent.
 
 ## 0.1.4 - 2026-08-29
 
