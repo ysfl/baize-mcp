@@ -13,6 +13,7 @@ This file records user-visible changes in published Baize MCP versions.
 - 修复 Nginx 站点观察的分页，`sites` 视图现在使用服务端真实页码并返回总数与继续标记。
 - 409 冲突提示按原因分族：授权中心拒绝、权益限制与任务状态冲突不再共用同一句话，提示直接指向核对激活码、License、安装绑定、订阅或清理卡住任务等对应下一步。
 - 修正目标参数校验失败时错误文案的标签推导，目标相关提示表述保持一致。
+- 通过 MCP 进行的管理操作会在请求中声明客户端来源，审计可以区分 AI 经手与人工直接操作。
 
 ### English
 
@@ -21,6 +22,7 @@ This file records user-visible changes in published Baize MCP versions.
 - Fixes pagination for the Nginx sites observation so the `sites` view uses server-side pages and returns totals and continuation metadata.
 - Groups 409 conflict messages by reason: authorization-center rejections, entitlement limits, and task-state conflicts no longer share one sentence; guidance now points to the matching next step such as checking the activation code, license, installation binding, subscription, or clearing a stuck task.
 - Fixes label derivation in validation messages for invalid target lists so wording stays consistent.
+- Management operations made through MCP now declare the client source in requests, so audits can tell AI-handled actions from direct human operations.
 
 ## 0.1.4 - 2026-08-29
 
