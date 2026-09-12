@@ -1445,6 +1445,8 @@ func (c *Client) do(ctx context.Context, method string, segments []string, query
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
+	// 声明客户端来源，供白泽服务端审计区分“AI 经手”与人工直接操作；服务端只记录不校验。
+	req.Header.Set("X-Baize-Client", "baize-mcp")
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
