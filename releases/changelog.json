@@ -1,7 +1,39 @@
 {
   "schemaVersion": "baize.mcp.changelog.v1",
-  "generatedAt": "2026-08-29T00:00:00Z",
+  "generatedAt": "2026-09-13T00:00:00Z",
   "entries": [
+    {
+      "version": "0.1.5",
+      "tag": "v0.1.5",
+      "channel": "stable",
+      "releasedAt": "2026-09-13",
+      "minimumBaizeVersion": "0.2.2",
+      "transport": "stdio",
+      "title": {
+        "zh": "会话热读取与提示体验修复",
+        "en": "Session hot-reload and guidance fixes"
+      },
+      "summary": {
+        "zh": "重新登录后无需重启 AI 客户端即可生效，只读请求自动跟随最新会话；同时修正分页与冲突提示，让下一步动作更明确。",
+        "en": "Re-login takes effect without restarting the AI client, and read-only requests follow the latest session automatically; pagination and conflict guidance are also clearer."
+      },
+      "items": {
+        "zh": [
+          "MCP 进程在每次认证请求前重新读取本机会话，重新登录立即生效。",
+          "只读请求遇到会话变化导致的 401 时自动重试一次；写请求不自动重放。",
+          "新增 retry 命令手动检查会话，无需再次输入密码。",
+          "修复 Nginx 站点观察分页，返回真实页码、总数与继续标记。",
+          "409 冲突提示按原因分族并给出对应下一步。"
+        ],
+        "en": [
+          "The MCP process reloads the local session before every authenticated request, so re-login takes effect immediately.",
+          "Read-only requests retry once on a session-change 401; write requests are never replayed automatically.",
+          "Adds a retry command to check the session manually without the password again.",
+          "Fixes Nginx sites observation pagination with real page numbers, totals, and continuation metadata.",
+          "409 conflict messages are grouped by reason with matching next steps."
+        ]
+      }
+    },
     {
       "version": "0.1.4",
       "tag": "v0.1.4",
