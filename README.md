@@ -144,6 +144,12 @@ baize-mcp config get --profile default
 
 当前稳定 MCP 版本主要提供命令计划工作流；普通远程任务 API 不要求 `templateId`，也不因 API 调用而绕过权限或审计。API 和 MCP 都使用带角色的白泽账号，操作历史和安全审计由白泽服务端保留；是否需要审批由服务端策略决定。MCP 没有独立的审计存储。
 
+## 文件推送参考（结合 REST 能力）
+
+MCP 工具本身不传输文件，但结合 `baize_exec_task_direct` 与公开 REST 任务接口，可以把中小文件（建议 ≤ 20MB）以"分片远程任务"方式推送到只有 Agent 可达、未开放 FTP/SSH 的节点：本地 gzip + base64 切片（约 96KB/片，受 Linux `MAX_ARG_STRLEN` 限制），逐片串行下发写盘任务，远端拼接解码后做 sha256 双端校验。每个分片都是一条受审计的远程任务，权限与风险确认由白泽处理。
+
+完整的通道选择（FTP / 制品仓库 / 分片）、约束与可直接使用的参考脚本见 [baize 公开仓的《远程文件传输》](https://github.com/ysfl/baize/blob/main/docs/remote-file-transfer.md) 与 [`scripts/baize-file-push.sh`](https://github.com/ysfl/baize/blob/main/scripts/baize-file-push.sh)。
+
 ## 版本与更新
 
 - 结构化更新记录：[releases/changelog.json](releases/changelog.json)
