@@ -394,7 +394,7 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 		case http.MethodPost + " /api/v1/ops/tasks/" + taskID + "/dispatch":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"taskId":"` + taskID + `","dispatched":true}}`))
 		case http.MethodPost + " /api/v1/ops/tasks/" + taskID + "/cancel":
-			_, _ = w.Write([]byte(`{"code":0,"data":null}`))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + taskID + `","taskType":"command","title":"Restart","status":"cancelled","targets":[{"id":"dddddddd-eeee-ffff-0000-111111111111","agentId":"` + agentID + `","status":"failed","exitCode":1,"outputSize":0,"errorMessage":"agent is offline or send queue is full (PASSWORD=should-not-leak)","deadlineAt":"2026-09-17T10:10:00Z"}]}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -447,8 +447,22 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 	if err != nil || dispatched.ID != taskID || dispatched.Status != "dispatched" {
 		t.Fatalf("DispatchExecTask() = %#v, error = %v", dispatched, err)
 	}
-	if err := client.CancelExecTask(context.Background(), taskID); err != nil {
-		t.Fatalf("CancelExecTask() error = %v", err)
+	cancelled, err := client.CancelExecTask(context.Background(), taskID)
+	if err != nil || cancelled.ID != taskID || cancelled.Status != "cancelled" {
+		t.Fatalf("CancelExecTask() = %#v, error = %v", cancelled, err)
+	}
+	if len(cancelled.Targets) != 1 {
+		t.Fatalf("cancel targets = %#v", cancelled.Targets)
+	}
+	target := cancelled.Targets[0]
+	if !strings.Contains(target.ErrorMessage, "agent is offline") {
+		t.Fatalf("cancel target errorMessage = %q, want stable failure reason", target.ErrorMessage)
+	}
+	if strings.Contains(target.ErrorMessage, "PASSWORD=should-not-leak") {
+		t.Fatalf("cancel target errorMessage leaked secret pattern: %q", target.ErrorMessage)
+	}
+	if target.DeadlineAt == nil {
+		t.Fatalf("cancel target deadlineAt = nil, want server-provided deadline")
 	}
 	directTask, err := client.DirectExecTask(context.Background(), DirectExecTaskOptions{Command: "systemctl restart nginx", Title: "Direct restart", TargetAgentIDs: []string{agentID}, ConfirmRisk: true})
 	if err != nil || directTask.ID != taskID {
@@ -845,5 +859,51 @@ func TestClientDoesNotExposeTraceID(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "trace-1") || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("error exposed trace data: %v", err)
+	}
+}
+
+func TestParseAPIErrorWhitelistsStructuredParams(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"details":{"reason":"exec.task.terminal_state","retryable":false,"messageKey":"api.errors.operationConflict","messageParams":{"currentStatus":"completed","secret":"do-not-return"},"nextActionKey":"api.actions.checkState","nextActionParams":{"taskId":"task-1","traceId":"do-not-return","nested":{"a":1}}},"traceId":"trace-1"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "session-token", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	err = client.CheckSession(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("CheckSession() error = %v, want APIError", err)
+	}
+	if apiErr.Reason != "exec.task.terminal_state" {
+		t.Fatalf("reason = %q", apiErr.Reason)
+	}
+	if apiErr.MessageParams["currentStatus"] != "completed" {
+		t.Fatalf("messageParams = %#v, want currentStatus only", apiErr.MessageParams)
+	}
+	if apiErr.NextActionParams["taskId"] != "task-1" || apiErr.NextActionParams["traceId"] != "" {
+		t.Fatalf("nextActionParams = %#v, want taskId only", apiErr.NextActionParams)
+	}
+	if len(apiErr.MessageParams) != 1 || len(apiErr.NextActionParams) != 1 {
+		t.Fatalf("params leaked non-whitelisted keys: %#v / %#v", apiErr.MessageParams, apiErr.NextActionParams)
+	}
+	if strings.Contains(err.Error(), "do-not-return") || strings.Contains(err.Error(), "trace-1") {
+		t.Fatalf("error exposed non-whitelisted details: %v", err)
+	}
+}
+
+func TestValidateParametersLengthErrorIncludesNumbers(t *testing.T) {
+	long := strings.Repeat("x", maxParameterValueLength+10)
+	_, err := validateParameters(map[string]any{"payload": long})
+	if err == nil {
+		t.Fatalf("validateParameters() error = nil, want length error")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "4096") || !strings.Contains(message, "4106") {
+		t.Fatalf("length error %q missing numeric bounds", message)
 	}
 }

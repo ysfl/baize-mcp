@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -112,7 +113,7 @@ func (f *lifecycleClient) GetExecTaskOutput(ctx context.Context, options baize.E
 	return f.fakeClient.GetExecTaskOutput(ctx, options)
 }
 
-func (f *lifecycleClient) CancelExecTask(ctx context.Context, id string) error {
+func (f *lifecycleClient) CancelExecTask(ctx context.Context, id string) (baize.TaskSummary, error) {
 	f.record("task.cancel")
 	return f.fakeClient.CancelExecTask(ctx, id)
 }
@@ -301,12 +302,12 @@ func (f *fakeClient) GetExecTaskOutput(_ context.Context, options baize.ExecTask
 	return baize.ExecTaskOutputSummary{TaskID: options.TaskID, ResultMode: "on_demand_bounded_output", Notice: "bounded output; do not retry the same request"}, nil
 }
 
-func (f *fakeClient) CancelExecTask(_ context.Context, id string) error {
+func (f *fakeClient) CancelExecTask(_ context.Context, id string) (baize.TaskSummary, error) {
 	if f.writeErr != nil {
-		return f.writeErr
+		return baize.TaskSummary{}, f.writeErr
 	}
 	f.taskID = id
-	return nil
+	return baize.TaskSummary{ID: id, Status: "cancelled"}, nil
 }
 
 func (f *fakeClient) StartRuntimeDiagnosis(_ context.Context, options baize.RuntimeDiagnosisStartOptions) (baize.RuntimeDiagnosisSummary, error) {
@@ -726,13 +727,17 @@ func TestServerToolListStaysWithinContextBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal tools list: %v", err)
 	}
+	// 48 KiB 目标预算保持不变，用于持续暴露目录增长压力；
+	// 硬上限 72 KiB 是 2026-09-17 错误反馈增强（T-P2-006）的校准结果：
+	// baize_exec_task_cancel 新增取消后任务摘要输出 schema，任务目标摘要增加
+	// errorMessage / deadlineAt 字段，属功能要求带来的必要增长，经记录后上调。
 	const targetBudget = 48 << 10
-	const hardLimit = 64 << 10
+	const hardLimit = 72 << 10
 	if len(raw) > targetBudget {
 		t.Logf("WARNING: tools/list is %d bytes, exceeds 48 KiB target budget (room for growth diminishing)", len(raw))
 	}
 	if len(raw) > hardLimit {
-		t.Fatalf("tools/list is %d bytes, exceeds 64 KiB hard limit", len(raw))
+		t.Fatalf("tools/list is %d bytes, exceeds 72 KiB hard limit", len(raw))
 	}
 }
 
@@ -976,4 +981,38 @@ func containsJSONField(value any, target string) bool {
 		}
 	}
 	return false
+}
+
+func TestConflictMessageForExecReasonsIsActionable(t *testing.T) {
+	cases := map[string]string{
+		"exec.task.terminal_state":           "terminal state",
+		"exec.risk_confirmation_required":    "confirmRisk=true",
+		"exec.debug_session_invalid":         "debug session",
+		"exec.template_not_ready":            "template",
+		"exec.batch_not_terminal":            "non-terminal targets",
+		"exec.batch_success_rate_below_gate": "success rate",
+	}
+	for reason, want := range cases {
+		message := conflictMessageForReason(reason)
+		if !strings.Contains(message, want) {
+			t.Fatalf("conflictMessageForReason(%q) = %q, want it to mention %q", reason, message, want)
+		}
+	}
+}
+
+func TestToolErrorRendersWhitelistedParams(t *testing.T) {
+	err := toolErrorWithAction(&baize.APIError{
+		StatusCode:       http.StatusConflict,
+		Reason:           "exec.task.terminal_state",
+		MessageKey:       "api.errors.operationConflict",
+		NextActionKey:    "api.actions.checkState",
+		MessageParams:    map[string]string{"currentStatus": "completed"},
+		NextActionParams: map[string]string{"taskId": "task-1"},
+	}, "write")
+	message := err.Error()
+	for _, want := range []string{"param.currentStatus=completed", "nextAction.taskId=task-1", "reason=exec.task.terminal_state"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("tool error %q missing %q", message, want)
+		}
+	}
 }

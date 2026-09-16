@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -38,6 +39,8 @@ const (
 	maxApprovalItems           = 50
 	maxAgentPageItems          = 100
 	maxApprovalPolicies        = 10
+	maxAPIErrorParams          = 8
+	maxAPIErrorParamLength     = 200
 )
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -333,6 +336,11 @@ type TaskTargetSummary struct {
 	OutputSize int        `json:"outputSize"`
 	StartedAt  *time.Time `json:"startedAt,omitempty"`
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	// DeadlineAt 是服务端按 startedAt + 超时时间推算的执行截止时间；超期未回执说明需要判障而不是继续等待。
+	DeadlineAt *time.Time `json:"deadlineAt,omitempty"`
+	// ErrorMessage 是目标失败的稳定业务原因，经保守脱敏与限长后透出，
+	// 让 AI 首次读任务摘要即可判断失败方向，不必再翻页输出定位。
+	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
 type TaskSummary struct {
@@ -428,11 +436,12 @@ type execTaskRecord struct {
 	Targets     []execTargetRecord `json:"targets"`
 }
 
-// dispatchTaskRecord 同时兼容派发接口返回完整任务详情和旧服务返回的最小回退对象。
+// dispatchTaskRecord 同时兼容派发/取消接口返回完整任务详情和旧服务返回的最小回退对象。
 type dispatchTaskRecord struct {
 	execTaskRecord
 	TaskID     string `json:"taskId"`
 	Dispatched bool   `json:"dispatched"`
+	Cancelled  bool   `json:"cancelled"`
 }
 
 type execTargetRecord struct {
@@ -443,6 +452,8 @@ type execTargetRecord struct {
 	OutputSize int        `json:"outputSize"`
 	StartedAt  *time.Time `json:"startedAt"`
 	FinishedAt *time.Time `json:"finishedAt"`
+	DeadlineAt   *time.Time `json:"deadlineAt"`
+	ErrorMessage *string   `json:"errorMessage"`
 }
 
 type commandPlanApprovalRecord struct {
@@ -496,6 +507,10 @@ type APIError struct {
 	Retryable     *bool
 	MessageKey    string
 	NextActionKey string
+	// MessageParams / NextActionParams 是服务端白名单产出的结构化参数
+	// （如 currentStatus、taskId、successRate），经限长后透出给 AI 判别下一步。
+	MessageParams    map[string]string
+	NextActionParams map[string]string
 }
 
 func (e *APIError) Error() string {
@@ -1151,12 +1166,27 @@ func (c *Client) DispatchExecTask(ctx context.Context, id string) (TaskSummary, 
 	return summarizeExecTask(data.execTaskRecord), nil
 }
 
-func (c *Client) CancelExecTask(ctx context.Context, id string) error {
+// CancelExecTask 请求取消任务并返回取消后的任务摘要。
+// Agent 侧通知是 best-effort，摘要中的状态是 Server 受理后的审计事实；
+// 目标机进程是否真正停止以再次查询任务详情为准。
+func (c *Client) CancelExecTask(ctx context.Context, id string) (TaskSummary, error) {
 	taskID, err := validateUUID(id, "execution task ID")
 	if err != nil {
-		return err
+		return TaskSummary{}, err
 	}
-	return c.do(ctx, http.MethodPost, []string{"ops", "tasks", taskID, "cancel"}, nil, nil, nil, true)
+	var record dispatchTaskRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "tasks", taskID, "cancel"}, nil, nil, &record, true); err != nil {
+		return TaskSummary{}, err
+	}
+	if record.ID != "" {
+		return summarizeExecTask(record.execTaskRecord), nil
+	}
+	// 旧服务端最小回退对象只有 taskId；以 cancelled 语义回显，避免返回空摘要。
+	summary := TaskSummary{ID: record.TaskID, Status: "cancelled"}
+	if summary.ID == "" {
+		summary.ID = taskID
+	}
+	return summary, nil
 }
 
 func validateUUID(value, label string) (string, error) {
@@ -1211,7 +1241,7 @@ func validateParameters(values map[string]any) (map[string]any, error) {
 		switch normalized := value.(type) {
 		case nil, string, bool, float64, int, int64, json.Number:
 			if text, ok := normalized.(string); ok && len(text) > maxParameterValueLength {
-				return nil, newInputError(fmt.Sprintf("parameter %q exceeds the allowed length", key))
+				return nil, newInputError(fmt.Sprintf("parameter %q must not exceed %d characters (current %d); shorten the payload or split the task instead of retrying with a larger value", key, maxParameterValueLength, len(text)))
 			}
 			result[key] = normalized
 		default:
@@ -1354,9 +1384,23 @@ func summarizeExecTask(item execTaskRecord) TaskSummary {
 			targetsTruncated = true
 			break
 		}
-		targets = append(targets, TaskTargetSummary{ID: target.ID, AgentID: target.AgentID, Status: trimPublicText(target.Status, maxTemplateFieldLength), ExitCode: target.ExitCode, OutputSize: target.OutputSize, StartedAt: target.StartedAt, FinishedAt: target.FinishedAt})
+		targets = append(targets, TaskTargetSummary{
+			ID: target.ID, AgentID: target.AgentID, Status: trimPublicText(target.Status, maxTemplateFieldLength),
+			ExitCode: target.ExitCode, OutputSize: target.OutputSize, StartedAt: target.StartedAt, FinishedAt: target.FinishedAt,
+			DeadlineAt: target.DeadlineAt, ErrorMessage: publicTargetErrorMessage(target.ErrorMessage),
+		})
 	}
 	return TaskSummary{ID: item.ID, TaskType: trimPublicText(item.TaskType, maxTemplateFieldLength), Title: trimPublicText(item.Title, maxReasonLength), TimeoutSec: item.TimeoutSec, Status: trimPublicText(item.Status, maxTemplateFieldLength), CreatedAt: item.CreatedAt, StartedAt: item.StartedAt, FinishedAt: item.FinishedAt, CancelledAt: item.CancelledAt, Targets: targets, TargetsTruncated: targetsTruncated}
+}
+
+// publicTargetErrorMessage 把失败目标的错误原因收敛为可公开返回的稳定文本：
+// 先做与任务输出一致的保守脱敏，再限长；空值直接省略。
+func publicTargetErrorMessage(raw *string) string {
+	if raw == nil {
+		return ""
+	}
+	redacted, _ := redactSensitiveTextUnbounded(*raw)
+	return trimPublicText(redacted, maxReasonLength)
 }
 
 func trimPrecheckItems(items []PrecheckItem) ([]PrecheckItem, bool) {
@@ -1508,14 +1552,17 @@ var apiErrorKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$
 
 type apiErrorEnvelope struct {
 	Details struct {
-		Reason        string `json:"reason"`
-		Retryable     *bool  `json:"retryable"`
-		MessageKey    string `json:"messageKey"`
-		NextActionKey string `json:"nextActionKey"`
+		Reason           string         `json:"reason"`
+		Retryable        *bool          `json:"retryable"`
+		MessageKey       string         `json:"messageKey"`
+		NextActionKey    string         `json:"nextActionKey"`
+		MessageParams    map[string]any `json:"messageParams"`
+		NextActionParams map[string]any `json:"nextActionParams"`
 	} `json:"details"`
 }
 
-// parseAPIError 只保留公开契约中的稳定错误标识，不保留服务端原始 message、参数或 traceId。
+// parseAPIError 只保留公开契约中的稳定错误标识与结构化参数，
+// 不保留服务端原始 message、堆栈或 traceId。
 func parseAPIError(statusCode int, raw []byte) *APIError {
 	apiErr := &APIError{StatusCode: statusCode}
 	var envelope apiErrorEnvelope
@@ -1526,7 +1573,68 @@ func parseAPIError(statusCode int, raw []byte) *APIError {
 	apiErr.MessageKey = normalizeAPIErrorKey(envelope.Details.MessageKey)
 	apiErr.NextActionKey = normalizeAPIErrorKey(envelope.Details.NextActionKey)
 	apiErr.Retryable = envelope.Details.Retryable
+	apiErr.MessageParams = normalizeAPIErrorParams(envelope.Details.MessageParams)
+	apiErr.NextActionParams = normalizeAPIErrorParams(envelope.Details.NextActionParams)
 	return apiErr
+}
+
+// apiErrorParamKeyAllowlist 是服务端结构化错误参数的显式键名白名单。
+// 只有这些稳定业务键（状态、任务标识、计数与阈值）可以进入工具输出；
+// 其余键一律丢弃，防止服务端新增字段把内部细节带进 AI 对话。
+var apiErrorParamKeyAllowlist = map[string]struct{}{
+	"currentStatus":       {},
+	"taskId":              {},
+	"currentTaskId":       {},
+	"templateId":          {},
+	"riskLevel":           {},
+	"confirmRisk":         {},
+	"pendingCount":        {},
+	"runningCount":        {},
+	"upgradeStartedCount": {},
+	"successRate":         {},
+	"minSuccessRate":      {},
+	"failedCount":         {},
+	"timeoutCount":        {},
+}
+
+// normalizeAPIErrorParams 把服务端结构化参数收敛为白名单键 + 标量值的稳定字符串：
+// 键名不在白名单或值不是标量的条目直接丢弃，防御异常响应把内部结构带进工具结果。
+func normalizeAPIErrorParams(raw map[string]any) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(raw))
+	for key, value := range raw {
+		if len(result) >= maxAPIErrorParams {
+			break
+		}
+		name := strings.TrimSpace(key)
+		if _, allowed := apiErrorParamKeyAllowlist[name]; !allowed {
+			continue
+		}
+		var text string
+		switch typed := value.(type) {
+		case string:
+			text = typed
+		case bool:
+			text = fmt.Sprintf("%t", typed)
+		case float64:
+			text = strconv.FormatFloat(typed, 'f', -1, 64)
+		case json.Number:
+			text = typed.String()
+		default:
+			// 对象、数组等复杂值不透出，避免把嵌套服务端结构带进工具结果。
+			continue
+		}
+		if len(text) > maxAPIErrorParamLength {
+			text = text[:maxAPIErrorParamLength]
+		}
+		result[name] = text
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func normalizeAPIErrorKey(value string) string {

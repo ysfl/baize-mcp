@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -40,7 +41,7 @@ type Client interface {
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
 	DispatchExecTask(context.Context, string) (baize.TaskSummary, error)
 	GetExecTaskOutput(context.Context, baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error)
-	CancelExecTask(context.Context, string) error
+	CancelExecTask(context.Context, string) (baize.TaskSummary, error)
 	StartRuntimeDiagnosis(context.Context, baize.RuntimeDiagnosisStartOptions) (baize.RuntimeDiagnosisSummary, error)
 	GetRuntimeDiagnosis(context.Context, string) (baize.RuntimeDiagnosisDetail, error)
 	GetRuntimeDiagnosisAIContext(context.Context, string) (baize.RuntimeDiagnosisAIContext, error)
@@ -58,6 +59,15 @@ type Client interface {
 }
 
 type emptyInput struct{}
+
+// execCancelAgentNotificationMode 声明取消动作对 Agent 的通知语义：尽力而为，不保证目标机进程立即停止。
+const execCancelNotificationMode = "best_effort"
+
+type execTaskCancelOutput struct {
+	Task baize.TaskSummary `json:"task"`
+	// AgentNotification 固定为 best_effort：任务在目标机的实际停止情况需要再次查询确认。
+	AgentNotification string `json:"agentNotification"`
+}
 
 type connectionStatusOutput struct {
 	Connected bool `json:"connected" jsonschema:"whether the saved session was accepted by Baize"`
@@ -726,11 +736,15 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 	mcp.AddTool(server, writeTool(
 		"baize_exec_task_cancel",
 		"Cancel a Baize execution task",
-		"Requests cancellation of a pending or running task. Baize records the action and checks permission and task state.",
+		"Requests cancellation of a pending or running task and returns the post-cancellation task summary with per-target failure reasons. Agent notification is best effort.",
 		true,
-	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskCancelInput) (*mcp.CallToolResult, emptyInput, error) {
-		err := client.CancelExecTask(ctx, input.ID)
-		return toolOutput(emptyInput{}, err, "write")
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input execTaskCancelInput) (*mcp.CallToolResult, execTaskCancelOutput, error) {
+		task, err := client.CancelExecTask(ctx, input.ID)
+		if err != nil {
+			var zero execTaskCancelOutput
+			return toolOutput(zero, err, "write")
+		}
+		return toolOutput(execTaskCancelOutput{Task: task, AgentNotification: execCancelNotificationMode}, nil, "write")
 	})
 
 	return server
@@ -785,16 +799,22 @@ func toolErrorWithAction(err error, action string) error {
 		default:
 			base = "Baize could not complete this request"
 		}
-		// 只回传服务端契约中的稳定标识，帮助 AI 选择下一步；不回传原始错误、参数或 traceId。
-		parts := make([]string, 0, 4)
+		// 只回传服务端契约中的稳定标识与结构化参数，帮助 AI 选择下一步；不回传原始错误、堆栈或 traceId。
+		parts := make([]string, 0, 8)
 		if apiErr.Reason != "" {
 			parts = append(parts, "reason="+apiErr.Reason)
 		}
 		if apiErr.MessageKey != "" {
 			parts = append(parts, "messageKey="+apiErr.MessageKey)
 		}
+		for _, entry := range sortedParams(apiErr.MessageParams) {
+			parts = append(parts, "param."+entry.key+"="+entry.value)
+		}
 		if apiErr.NextActionKey != "" {
 			parts = append(parts, "nextActionKey="+apiErr.NextActionKey)
+		}
+		for _, entry := range sortedParams(apiErr.NextActionParams) {
+			parts = append(parts, "nextAction."+entry.key+"="+entry.value)
 		}
 		if apiErr.Retryable != nil {
 			parts = append(parts, fmt.Sprintf("retryable=%t", *apiErr.Retryable))
@@ -807,12 +827,47 @@ func toolErrorWithAction(err error, action string) error {
 	return errors.New("the Baize request could not be completed")
 }
 
+type paramEntry struct {
+	key   string
+	value string
+}
+
+// sortedParams 以稳定顺序输出结构化参数，避免 map 遍历顺序造成同一错误文案抖动。
+func sortedParams(params map[string]string) []paramEntry {
+	if len(params) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]paramEntry, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, paramEntry{key: key, value: params[key]})
+	}
+	return result
+}
+
 // conflictMessageForReason 按 reason 分族给出 409 的基础句，避免统一的
 // "需要确认或审批" 表述误导授权中心拒绝、权益限制等与本任务状态无关的场景。
+// 远程执行场景按服务端细分 reason 给出可直接行动的指引。
 func conflictMessageForReason(reason string) string {
 	switch {
 	case reason == "" || reason == "operation.conflict":
 		return "Baize could not complete this request because the current state conflicts with the requested operation; query the task or plan state first, cancel stuck tasks if any, and include risk confirmation when Baize requires it"
+	case reason == "exec.task.terminal_state":
+		return "Baize rejected this request because the task is already in a terminal state; param.currentStatus shows the final status, so query the task detail for results instead of retrying the cancellation"
+	case reason == "exec.risk_confirmation_required":
+		return "Baize rejected this request because it requires explicit risk confirmation; review the command risk, then resend with confirmRisk=true (or inside a valid debug session)"
+	case reason == "exec.debug_session_invalid":
+		return "Baize rejected this request because the referenced debug session is missing, expired, or invalid; create a new debug session and retry once"
+	case reason == "exec.template_not_ready":
+		return "Baize rejected this request because the command template is disabled or its precheck failed; fix or re-enable the template, or choose another one"
+	case reason == "exec.batch_not_terminal":
+		return "Baize rejected this request because the previous batch still has non-terminal targets; query nextAction.currentTaskId and wait, or cancel stuck targets, before dispatching the next batch"
+	case reason == "exec.batch_success_rate_below_gate":
+		return "Baize rejected this request because the previous batch success rate is below the gate threshold; inspect the failed targets (param.failedCount, param.timeoutCount) before dispatching the next batch"
 	case strings.HasPrefix(reason, "activation_grant."),
 		strings.HasPrefix(reason, "license."),
 		strings.HasPrefix(reason, "customer_server."),

@@ -4,6 +4,20 @@
 
 This file records user-visible changes in published Baize MCP versions.
 
+## [Unreleased]
+
+### 中文
+
+- 远程任务错误信息更可行动：取消任务现在直接返回取消后的任务摘要（含各目标的失败原因与预计截止时间），不再返回空结果；失败原因经过保守脱敏与限长。
+- 409 冲突提示按远程执行场景细分：任务已终态、缺少风险确认、调试会话失效、模板未就绪、批次未收尾、成功率低于门禁各自给出对应的下一步指引，并携带当前状态、任务标识、计数等结构化参数。
+- 任务参数超过 4096 字符的提示现在带上限值与当前长度，并明确建议精简或拆分，而不是笼统的"超出允许长度"。
+
+### English
+
+- Remote task errors are now actionable: cancelling a task returns the post-cancellation task summary (per-target failure reasons and expected deadlines) instead of an empty result; failure reasons are conservatively redacted and length-capped.
+- 409 conflict messages are now subdivided for remote execution scenarios: terminal-state tasks, missing risk confirmation, invalid debug sessions, templates not ready, unfinished batches, and below-gate success rates each point to their matching next step, with structured parameters such as current status, task id, and counts.
+- The error for task parameters longer than 4096 characters now states the limit and the current length, and clearly suggests shortening or splitting instead of a generic "exceeds the allowed length".
+
 ## 0.1.5 - 2026-09-13
 
 ### 中文
