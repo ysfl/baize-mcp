@@ -4,7 +4,7 @@ go 1.25.13
 
 require (
 	github.com/google/renameio/v2 v2.0.2
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/term v0.45.0
 )
