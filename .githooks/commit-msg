@@ -2,6 +2,7 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-WORKSPACE_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
+# 本仓为独立公开仓，.githooks 位于仓根，校验器脚本在 <仓根>/scripts/ 下
+WORKSPACE_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 
 python3 "$WORKSPACE_ROOT/scripts/validate_commit_message.py" --message-file "$1"
