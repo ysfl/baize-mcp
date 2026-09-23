@@ -38,6 +38,7 @@ type Client interface {
 	ListCommandPlanApprovalPolicies(context.Context) ([]baize.CommandPlanApprovalPolicySummary, error)
 	ExecuteCommandPlan(context.Context, string, baize.CommandPlanExecuteOptions) (baize.PlanExecutionSummary, error)
 	DirectExecTask(context.Context, baize.DirectExecTaskOptions) (baize.TaskSummary, error)
+	CreateExecTask(context.Context, baize.CreateExecTaskOptions) (baize.TaskSummary, error)
 	GetExecTask(context.Context, string) (baize.TaskSummary, error)
 	DispatchExecTask(context.Context, string) (baize.TaskSummary, error)
 	GetExecTaskOutput(context.Context, baize.ExecTaskOutputOptions) (baize.ExecTaskOutputSummary, error)
@@ -201,6 +202,16 @@ type directExecTaskInput struct {
 
 type execTaskGetInput struct {
 	ID string `json:"id" jsonschema:"Baize execution task UUID"`
+}
+
+type createExecTaskInput struct {
+	TaskType       string   `json:"taskType,omitempty" jsonschema:"optional task type: command (default) or script"`
+	Command        string   `json:"command" jsonschema:"one-off command to run; no template and no allowlist required; the Baize command safety engine still applies"`
+	Title          string   `json:"title" jsonschema:"human-readable execution title"`
+	WorkDir        string   `json:"workDir,omitempty" jsonschema:"optional working directory"`
+	TimeoutSec     int      `json:"timeoutSec,omitempty" jsonschema:"optional execution timeout in seconds"`
+	AutoDispatch   *bool    `json:"autoDispatch,omitempty" jsonschema:"optional; defaults to false so the pending task can be reviewed and dispatched later with baize_exec_task_dispatch"`
+	TargetAgentIDs []string `json:"targetAgentIds" jsonschema:"one or more Baize agent UUIDs"`
 }
 
 type execTaskDispatchInput struct {
@@ -698,6 +709,19 @@ func NewWithOptions(client Client, options Options) *mcp.Server {
 			TemplateID: strings.TrimSpace(input.TemplateID), Command: strings.TrimSpace(input.Command), Title: strings.TrimSpace(input.Title), WorkDir: strings.TrimSpace(input.WorkDir),
 			TimeoutSec: input.TimeoutSec, AutoDispatch: input.AutoDispatch, ConfirmRisk: input.ConfirmRisk, ConfirmMessage: strings.TrimSpace(input.ConfirmMessage),
 			Parameters: input.Parameters, TargetAgentIDs: input.TargetAgentIDs,
+		})
+		return toolOutput(task, err, "write")
+	})
+
+	mcp.AddTool(server, writeTool(
+		"baize_exec_task_create",
+		"Create a one-off Baize remote execution task",
+		"Creates a regular remote execution task for a one-off command: no template and no allowlist required. Baize enforces permissions, agent scope, the command safety engine and audit; forbidden commands are rejected and critical commands need a verified debug session. autoDispatch defaults to false so the pending task can be reviewed and dispatched with baize_exec_task_dispatch.",
+		true,
+	), func(ctx context.Context, _ *mcp.CallToolRequest, input createExecTaskInput) (*mcp.CallToolResult, baize.TaskSummary, error) {
+		task, err := client.CreateExecTask(ctx, baize.CreateExecTaskOptions{
+			TaskType: strings.TrimSpace(input.TaskType), Command: strings.TrimSpace(input.Command), Title: strings.TrimSpace(input.Title), WorkDir: strings.TrimSpace(input.WorkDir),
+			TimeoutSec: input.TimeoutSec, AutoDispatch: input.AutoDispatch, TargetAgentIDs: input.TargetAgentIDs,
 		})
 		return toolOutput(task, err, "write")
 	})

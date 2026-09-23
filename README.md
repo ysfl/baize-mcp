@@ -126,6 +126,7 @@ DeepSeek Harness（DSH）不使用 `mcpServers` JSON，而是在用户插件层�
 | `baize_command_plan_approval_get` | 查询单个审批单及脱敏计划快照 |
 | `baize_command_plan_approval_decide` | 提交命令计划审批通过或驳回决策 |
 | `baize_exec_task_direct` | 通过服务端直接任务入口创建一条可追踪远程任务；模板可选，也可提交服务端允许的精确自定义命令；权限、风险确认、审批要求和审计由白泽决定 |
+| `baize_exec_task_create` | 为一次性命令创建普通远程任务：不需要模板、不受直连白名单约束，默认以待派发状态创建，可先审查再用派发工具执行；权限、命令安全引擎和审计由白泽统一生效 |
 | `baize_exec_task_get` | 查询远程任务整体及目标进度 |
 | `baize_exec_task_dispatch` | 将已创建且等待中的远程任务推入白泽执行链路；不重新提交命令或修改目标 |
 | `baize_exec_task_output_get` | 在用户明确要求后按目标、游标和页窗口读取有限任务输出；结果明确标记摘要、截断和保守替换，未返回内容不代表任务失败 |

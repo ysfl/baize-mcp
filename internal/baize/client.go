@@ -1135,6 +1135,66 @@ func (c *Client) DirectExecTask(ctx context.Context, options DirectExecTaskOptio
 	return summarizeExecTask(data), nil
 }
 
+// CreateExecTaskOptions 描述普通远程任务创建入参（POST /ops/tasks）。
+// 面向一次性命令：不需要模板，也不受直连白名单约束；
+// 危险命令由服务端静态安全引擎统一拦截，审计与直连同源生效。
+type CreateExecTaskOptions struct {
+	TaskType       string
+	Title          string
+	Command        string
+	WorkDir        string
+	TimeoutSec     int
+	AutoDispatch   *bool
+	TargetAgentIDs []string
+}
+
+func (c *Client) CreateExecTask(ctx context.Context, options CreateExecTaskOptions) (TaskSummary, error) {
+	agentIDs, err := validateUUIDList(options.TargetAgentIDs, maxCommandTargets, "target agents")
+	if err != nil {
+		return TaskSummary{}, err
+	}
+	title := strings.TrimSpace(options.Title)
+	if title == "" || len(title) > 255 {
+		return TaskSummary{}, newInputError("title must be non-empty and no longer than 255 characters")
+	}
+	command := strings.TrimSpace(options.Command)
+	if command == "" {
+		return TaskSummary{}, newInputError("command is required")
+	}
+	if len(command) > maxDirectCommandLength {
+		return TaskSummary{}, newInputError(fmt.Sprintf("command must not exceed %d characters", maxDirectCommandLength))
+	}
+	taskType := strings.TrimSpace(options.TaskType)
+	if taskType != "" && taskType != "command" && taskType != "script" {
+		return TaskSummary{}, newInputError("task type must be command or script")
+	}
+	if len(strings.TrimSpace(options.WorkDir)) > 512 {
+		return TaskSummary{}, newInputError("work directory must not exceed 512 characters")
+	}
+	payload := map[string]any{
+		"title":          title,
+		"command":        command,
+		"targetAgentIds": agentIDs,
+	}
+	if taskType != "" {
+		payload["taskType"] = taskType
+	}
+	if workDir := strings.TrimSpace(options.WorkDir); workDir != "" {
+		payload["workDir"] = workDir
+	}
+	if options.TimeoutSec > 0 {
+		payload["timeoutSec"] = options.TimeoutSec
+	}
+	if options.AutoDispatch != nil {
+		payload["autoDispatch"] = *options.AutoDispatch
+	}
+	var data execTaskRecord
+	if err := c.do(ctx, http.MethodPost, []string{"ops", "tasks"}, nil, payload, &data, true); err != nil {
+		return TaskSummary{}, err
+	}
+	return summarizeExecTask(data), nil
+}
+
 func (c *Client) GetExecTask(ctx context.Context, id string) (TaskSummary, error) {
 	taskID, err := validateUUID(id, "execution task ID")
 	if err != nil {

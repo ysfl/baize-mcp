@@ -26,6 +26,7 @@ type fakeClient struct {
 	approvalOptions     baize.CommandPlanApprovalListOptions
 	approvalDecision    baize.CommandPlanApprovalDecisionOptions
 	directOptions       baize.DirectExecTaskOptions
+	createOptions       baize.CreateExecTaskOptions
 	overviewOptions     baize.OverviewOptions
 	observeOptions      baize.AgentObserveOptions
 	outputOptions       baize.ExecTaskOutputOptions
@@ -279,6 +280,15 @@ func (f *fakeClient) DirectExecTask(_ context.Context, options baize.DirectExecT
 	return baize.TaskSummary{ID: f.taskID, TaskType: "command", Title: options.Title, Status: "pending"}, nil
 }
 
+func (f *fakeClient) CreateExecTask(_ context.Context, options baize.CreateExecTaskOptions) (baize.TaskSummary, error) {
+	if f.writeErr != nil {
+		return baize.TaskSummary{}, f.writeErr
+	}
+	f.createOptions = options
+	f.taskID = "cccccccc-dddd-eeee-ffff-000000000000"
+	return baize.TaskSummary{ID: f.taskID, TaskType: "command", Title: options.Title, Status: "pending"}, nil
+}
+
 func (f *fakeClient) GetExecTask(_ context.Context, id string) (baize.TaskSummary, error) {
 	if f.writeErr != nil {
 		return baize.TaskSummary{}, f.writeErr
@@ -436,6 +446,7 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 		"baize_command_plan_approval_get":        false,
 		"baize_command_plan_approval_decide":     false,
 		"baize_command_plan_execute":             false,
+		"baize_exec_task_create":                 false,
 		"baize_exec_task_direct":                 false,
 		"baize_exec_task_get":                    false,
 		"baize_exec_task_dispatch":               false,
@@ -660,6 +671,15 @@ func TestServerExposesReadAndWriteTools(t *testing.T) {
 	executed := callTool(t, ctx, clientSession, "baize_command_plan_execute", map[string]any{"id": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "confirmRisk": true})
 	if !strings.Contains(executed, "pending") {
 		t.Fatalf("unexpected execute result: %s", executed)
+	}
+	created := callTool(t, ctx, clientSession, "baize_exec_task_create", map[string]any{
+		"command": "apt-get upgrade -y", "title": "One-off upgrade", "targetAgentIds": []string{"11111111-2222-3333-4444-555555555555"},
+	})
+	if !strings.Contains(created, "pending") {
+		t.Fatalf("unexpected task create result: %s", created)
+	}
+	if fake.createOptions.AutoDispatch != nil {
+		t.Fatalf("autoDispatch should stay unset when omitted: %#v", fake.createOptions.AutoDispatch)
 	}
 	_ = callTool(t, ctx, clientSession, "baize_exec_task_get", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})
 	dispatched := callTool(t, ctx, clientSession, "baize_exec_task_dispatch", map[string]any{"id": "cccccccc-dddd-eeee-ffff-000000000000"})

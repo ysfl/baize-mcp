@@ -380,6 +380,18 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 				t.Fatalf("unexpected execute body: %#v", body)
 			}
 			_, _ = w.Write([]byte(`{"code":0,"data":{"plan":{"id":"` + planID + `","templateId":"` + templateID + `","title":"Restart","riskLevel":"low","renderMode":"shell","renderedPreview":"secret-command","commandHash":"hash","workDir":"/srv","parameters":{"service":"nginx"},"targetAgentIds":["` + agentID + `"],"precheck":{"precheckPassed":true},"approvalRequired":false,"status":"executed","operatorName":"Operator"},"task":{"id":"` + taskID + `","taskType":"command","title":"Restart","command":"secret-command","workDir":"/srv","envVars":{"TOKEN":"secret"},"operatorName":"Operator","status":"pending","targets":[{"id":"dddddddd-eeee-ffff-0000-111111111111","agentId":"` + agentID + `","status":"pending","outputSize":0}]}}}`))
+		case http.MethodPost + " /api/v1/ops/tasks":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			if body["command"] != "apt-get upgrade -y" || body["title"] != "One-off upgrade" {
+				t.Fatalf("unexpected create body: %#v", body)
+			}
+			if _, exists := body["autoDispatch"]; exists {
+				t.Fatalf("create body should omit autoDispatch when unset: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"data":{"id":"` + taskID + `","taskType":"command","title":"One-off upgrade","status":"pending","targets":[]}}`))
 		case http.MethodPost + " /api/v1/ops/tasks/direct":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -442,6 +454,13 @@ func TestClientCommandWorkflowUsesPublishedEndpointsAndReducesFields(t *testing.
 	}
 	if _, err := client.GetExecTask(context.Background(), taskID); err != nil {
 		t.Fatalf("GetExecTask() error = %v", err)
+	}
+	created, err := client.CreateExecTask(context.Background(), CreateExecTaskOptions{Command: "apt-get upgrade -y", Title: "One-off upgrade", TargetAgentIDs: []string{agentID}})
+	if err != nil || created.ID != taskID || created.Status != "pending" {
+		t.Fatalf("CreateExecTask() = %#v, error = %v", created, err)
+	}
+	if _, err := client.CreateExecTask(context.Background(), CreateExecTaskOptions{Title: "missing command", TargetAgentIDs: []string{agentID}}); err == nil {
+		t.Fatal("CreateExecTask() accepted empty command")
 	}
 	dispatched, err := client.DispatchExecTask(context.Background(), taskID)
 	if err != nil || dispatched.ID != taskID || dispatched.Status != "dispatched" {

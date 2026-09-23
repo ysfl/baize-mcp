@@ -126,6 +126,7 @@ After installing the [Baize AI Skill](https://github.com/ysfl/baize/blob/main/sk
 | `baize_command_plan_approval_get` | Read one approval and its redacted plan snapshot |
 | `baize_command_plan_approval_decide` | Submit an approval or rejection decision for a command plan |
 | `baize_exec_task_direct` | Create one traceable remote task through Baize's direct-task entry; a template is an optional shortcut and an exact custom command is accepted when Baize allows it. Baize decides permissions, risk confirmation, approval requirements, and audit |
+| `baize_exec_task_create` | Create a regular remote task for a one-off command: no template and no allowlist required, created pending by default so it can be reviewed and dispatched later. Baize uniformly enforces permissions, the command safety engine, and audit |
 | `baize_exec_task_get` | Read overall and per-agent remote task progress |
 | `baize_exec_task_dispatch` | Push an existing pending task into the Baize execution chain without resubmitting the command or changing targets |
 | `baize_exec_task_output_get` | Read bounded task output by target, cursor, and page window after the user explicitly asks for it; the result states summary, truncation, and conservative redaction, and missing output does not mean the task failed |
