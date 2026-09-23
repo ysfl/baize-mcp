@@ -48,4 +48,8 @@ jobs:
             --verify-tag \
             --latest \
             --title "Baize MCP ${version}" \
-            --notes-file "releases/${RELEASE_TAG}.md"
+            --notes-file "releases/${RELEASE_TAG}.md" \
+          || { \
+            gh release edit "${RELEASE_TAG}" --notes-file "releases/${RELEASE_TAG}.md"; \
+            gh release upload "${RELEASE_TAG}" dist/* --clobber; \
+          }
