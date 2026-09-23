@@ -4,7 +4,7 @@
 
 This file records user-visible changes in published Baize MCP versions.
 
-## [0.1.6] - 2026-09-24
+## 0.1.6 - 2026-09-24
 
 ### 中文
 
