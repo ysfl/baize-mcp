@@ -4,6 +4,20 @@
 
 This file records user-visible changes in published Baize MCP versions.
 
+## Unreleased
+
+### 中文
+
+- `baize-mcp login` 默认改为浏览器登录：命令自动打开系统浏览器进入白泽授权页，登录并点击授权后自动完成后续流程，全程无需在终端输入密码，账号密码可交给浏览器密码管理器记忆。
+- 浏览器登录使用一次性授权码与 PKCE 校验换取会话凭据，回调只接受本机回环地址，凭据仍存入操作系统凭据存储。
+- 新增 `--password` 参数保留原有终端密码登录方式，适用于本机没有浏览器的场景（如远程开发机）；该方式仍要求交互式终端并提供 `--username`。
+
+### English
+
+- `baize-mcp login` now uses browser sign-in by default: the command opens the Baize authorization page in your system browser, and completing sign-in and approval there finishes the flow automatically, with no password typed in the terminal; account credentials can be remembered by the browser password manager.
+- Browser sign-in exchanges a one-time authorization code with PKCE verification for the session credential; callbacks are accepted from loopback addresses only, and the credential is still stored in the operating system credential storage.
+- A new `--password` flag keeps the original terminal password sign-in for machines without a browser (such as remote development boxes); that mode still requires an interactive terminal and `--username`.
+
 ## 0.1.6 - 2026-09-24
 
 ### 中文

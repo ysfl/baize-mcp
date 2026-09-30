@@ -96,7 +96,8 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 	flags.SetOutput(stderr)
 	profileName := flags.String("profile", defaultProfile, "local profile name")
 	apiURL := flags.String("api-url", "", "Baize API URL ending in /api/v1")
-	username := flags.String("username", "", "Baize username")
+	username := flags.String("username", "", "Baize username (optional for browser sign-in)")
+	passwordMode := flags.Bool("password", false, "sign in with a terminal password prompt instead of the browser")
 	allowHTTP := flags.Bool("allow-http", false, "allow non-loopback HTTP for this profile")
 	workflowMode := flags.String("workflow-mode", profile.WorkflowModeMulti, "workflow mode: multi or single")
 	if err := flags.Parse(args); err != nil {
@@ -111,54 +112,77 @@ func runLogin(ctx context.Context, args []string, stdin *os.File, stdout, stderr
 	if err := profile.ValidateWorkflowMode(strings.TrimSpace(*workflowMode)); err != nil {
 		return err
 	}
-	if strings.TrimSpace(*apiURL) == "" || strings.TrimSpace(*username) == "" {
-		return errors.New("login requires --api-url and --username")
-	}
-	if !term.IsTerminal(int(stdin.Fd())) {
-		return errors.New("login requires an interactive terminal so the password is not passed as an argument")
+	if strings.TrimSpace(*apiURL) == "" {
+		return errors.New("login requires --api-url")
 	}
 	normalizedURL, err := baize.ValidateAPIURL(*apiURL, *allowHTTP)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprint(stderr, "Password: "); err != nil {
-		return err
-	}
-	password, err := term.ReadPassword(int(stdin.Fd()))
-	_, _ = fmt.Fprintln(stderr)
-	if err != nil {
-		return errors.New("read password from terminal")
-	}
-	defer clearBytes(password)
 
 	client, err := baize.NewClient(normalizedURL, "", *allowHTTP, userAgent())
 	if err != nil {
 		return err
 	}
-	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	token, err := client.Login(requestCtx, strings.TrimSpace(*username), string(password))
+
+	var token string
+	if *passwordMode {
+		token, err = loginWithTerminalPassword(ctx, client, stdin, stderr, *username)
+	} else {
+		token, err = runBrowserLogin(ctx, stderr, client, normalizedURL, userAgent())
+	}
 	if err != nil {
 		return err
 	}
 
-	oldToken, oldTokenErr := credentials.Get(*profileName)
-	if oldTokenErr != nil && !errors.Is(oldTokenErr, credential.ErrNotFound) {
-		return oldTokenErr
-	}
-	if err := credentials.Set(*profileName, token); err != nil {
-		return err
-	}
 	item := profile.Profile{APIURL: normalizedURL, AllowHTTP: *allowHTTP, WorkflowMode: strings.TrimSpace(*workflowMode)}
-	if err := profiles.Put(*profileName, item); err != nil {
-		if oldTokenErr == nil {
-			_ = credentials.Set(*profileName, oldToken)
-		} else {
-			_ = credentials.Delete(*profileName)
-		}
+	if err := storeSessionCredential(credentials, profiles, *profileName, token, item); err != nil {
 		return err
 	}
 	return writeJSON(stdout, map[string]any{"authenticated": true})
+}
+
+// loginWithTerminalPassword 走终端密码提示的登录路径；密码只在内存中出现，不进入参数或配置文件。
+func loginWithTerminalPassword(ctx context.Context, client *baize.Client, stdin *os.File, stderr io.Writer, username string) (string, error) {
+	if strings.TrimSpace(username) == "" {
+		return "", errors.New("password sign-in requires --username")
+	}
+	if !term.IsTerminal(int(stdin.Fd())) {
+		return "", errors.New("password sign-in requires an interactive terminal so the password is not passed as an argument")
+	}
+	if _, err := fmt.Fprint(stderr, "Password: "); err != nil {
+		return "", err
+	}
+	password, err := term.ReadPassword(int(stdin.Fd()))
+	_, _ = fmt.Fprintln(stderr)
+	if err != nil {
+		return "", errors.New("read password from terminal")
+	}
+	defer clearBytes(password)
+
+	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return client.Login(requestCtx, strings.TrimSpace(username), string(password))
+}
+
+// storeSessionCredential 先写钥匙串再写 profile，写 profile 失败时回滚凭据，避免半完成状态。
+func storeSessionCredential(credentials credential.Store, profiles *profile.Store, profileName, token string, item profile.Profile) error {
+	oldToken, oldTokenErr := credentials.Get(profileName)
+	if oldTokenErr != nil && !errors.Is(oldTokenErr, credential.ErrNotFound) {
+		return oldTokenErr
+	}
+	if err := credentials.Set(profileName, token); err != nil {
+		return err
+	}
+	if err := profiles.Put(profileName, item); err != nil {
+		if oldTokenErr == nil {
+			_ = credentials.Set(profileName, oldToken)
+		} else {
+			_ = credentials.Delete(profileName)
+		}
+		return err
+	}
+	return nil
 }
 
 // runConfig 只维护本地 profile 的非秘密工作流偏好，不读取或打印地址、用户名和会话凭据。

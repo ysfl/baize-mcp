@@ -33,12 +33,19 @@ go build -trimpath -o baize-mcp ./cmd/baize-mcp
 
 ## 登录
 
-登录必须在本机交互式终端完成。用户名只用于本次登录请求，不会写入 profile；密码不会出现在命令参数或配置文件中：
+默认走浏览器登录：命令会打开系统浏览器进入白泽授权页，用浏览器里已保存的账号完成登录并点击授权，本机自动接管后续流程，全程不需要在终端输入密码：
+
+```bash
+baize-mcp login --api-url https://baize.example.com/api/v1
+```
+
+浏览器登录的过程：命令在本机回环地址启动一次性回调服务，并携带随机 state 与 PKCE challenge 打开授权页；你在授权页确认后，浏览器回跳本机，命令用一次性授权码换取会话凭据并存入操作系统凭据存储。授权码单次有效、短时过期，回调地址只接受本机回环地址。浏览器登录要求服务端提供授权页；本机没有浏览器（例如远程开发机）时，追加 `--password` 走终端密码方式，此时必须提供 `--username`，密码只在终端提示时输入，不会出现在命令参数或配置文件中：
 
 ```bash
 baize-mcp login \
   --api-url https://baize.example.com/api/v1 \
-  --username your-user
+  --username your-user \
+  --password
 ```
 
 默认要求 HTTPS。本机回环地址可以使用 HTTP；其它 HTTP 地址必须由用户显式增加 `--allow-http`。会话失效后，重新执行登录命令即可。

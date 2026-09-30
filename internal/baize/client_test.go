@@ -788,6 +788,40 @@ func TestClientAuthenticationFlow(t *testing.T) {
 	}
 }
 
+func TestClientExchangeCliToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/auth/cli/token" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "" {
+			t.Fatalf("token exchange must be unauthenticated, got Authorization %q", r.Header.Get("Authorization"))
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode exchange body: %v", err)
+		}
+		if body["code"] != "one-time-code" || body["codeVerifier"] != strings.Repeat("v", 43) || body["redirectUri"] != "http://127.0.0.1:53712/callback" {
+			t.Fatalf("unexpected exchange body: %#v", body)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{"token":"browser-session-token"}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL+"/api/v1", "", true, "test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	token, err := client.ExchangeCliToken(context.Background(), "one-time-code", strings.Repeat("v", 43), "http://127.0.0.1:53712/callback")
+	if err != nil {
+		t.Fatalf("ExchangeCliToken() error = %v", err)
+	}
+	if token != "browser-session-token" {
+		t.Fatalf("ExchangeCliToken() token = %q", token)
+	}
+}
+
 func TestClientBlocksCrossOriginRedirect(t *testing.T) {
 	var receivedAuthorization atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

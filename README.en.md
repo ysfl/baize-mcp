@@ -33,12 +33,19 @@ go build -trimpath -o baize-mcp ./cmd/baize-mcp
 
 ## Sign In
 
-Sign in from an interactive local terminal. The username is used only for that sign-in request and is not saved in the profile. The password is never placed in command arguments or configuration files:
+Browser sign-in is the default: the command opens your system browser on the Baize authorization page, where your browser-stored account signs in and approves the request; the local machine completes the rest, with no password typed in the terminal:
+
+```bash
+baize-mcp login --api-url https://baize.example.com/api/v1
+```
+
+How browser sign-in works: the command starts a one-time callback service on a local loopback port and opens the authorization page with a random state and a PKCE challenge. After you approve in the browser, it redirects back to your machine and the command exchanges the one-time authorization code for a session credential stored in the operating system credential storage. Codes are single-use and short-lived, and callbacks are accepted from loopback addresses only. Browser sign-in requires a server that provides the authorization page. On a machine without a browser (for example a remote development box), add `--password` to sign in from the terminal instead; this requires `--username`, and the password is only entered at the terminal prompt, never in command arguments or configuration files:
 
 ```bash
 baize-mcp login \
   --api-url https://baize.example.com/api/v1 \
-  --username your-user
+  --username your-user \
+  --password
 ```
 
 HTTPS is required by default. HTTP is accepted for loopback addresses; any other HTTP address requires the user to add `--allow-http` explicitly. Run the sign-in command again when the session expires.

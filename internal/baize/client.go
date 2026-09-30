@@ -600,6 +600,26 @@ func (c *Client) CheckSession(ctx context.Context) error {
 	return c.do(ctx, http.MethodGet, []string{"auth", "profile"}, nil, nil, nil, true)
 }
 
+// ExchangeCliToken 用浏览器登录流的一次性授权码 + PKCE verifier 换取会话凭据。
+// redirectUri 必须与授权确认时使用的回调地址完全一致；授权码单次消费且短时有效。
+func (c *Client) ExchangeCliToken(ctx context.Context, code, codeVerifier, redirectURI string) (string, error) {
+	payload := struct {
+		Code         string `json:"code"`
+		CodeVerifier string `json:"codeVerifier"`
+		RedirectURI  string `json:"redirectUri"`
+	}{Code: code, CodeVerifier: codeVerifier, RedirectURI: redirectURI}
+	var data struct {
+		Token string `json:"token"`
+	}
+	if err := c.do(ctx, http.MethodPost, []string{"auth", "cli", "token"}, nil, payload, &data, false); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(data.Token) == "" {
+		return "", errors.New("Baize CLI token exchange response did not include a session credential")
+	}
+	return data.Token, nil
+}
+
 func (c *Client) Logout(ctx context.Context) error {
 	var data struct {
 		Revoked bool `json:"revoked"`
