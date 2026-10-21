@@ -1,7 +1,37 @@
 {
   "schemaVersion": "baize.mcp.changelog.v1",
-  "generatedAt": "2026-09-13T00:00:00Z",
+  "generatedAt": "2026-10-21T00:00:00Z",
   "entries": [
+    {
+      "version": "0.1.7",
+      "tag": "v0.1.7",
+      "channel": "stable",
+      "releasedAt": "2026-10-21",
+      "minimumBaizeVersion": "0.3.5",
+      "transport": "stdio",
+      "title": {
+        "zh": "浏览器登录",
+        "en": "Browser sign-in"
+      },
+      "summary": {
+        "zh": "登录默认改为浏览器授权流，终端无需输入密码；保留 --password 终端方式，最低兼容白泽 0.3.5。",
+        "en": "Sign-in now uses the browser authorization flow by default, with no password typed in the terminal; terminal sign-in remains available with --password, and the minimum Baize version is 0.3.5."
+      },
+      "items": {
+        "zh": [
+          "baize-mcp login 默认打开系统浏览器中的白泽授权页，登录并确认授权后自动完成后续流程。",
+          "浏览器登录使用一次性授权码和 PKCE S256 校验，回调只接受本机回环地址，凭据仍存入操作系统凭据存储。",
+          "保留 --password 终端登录方式，适用于没有浏览器的环境；该方式仍要求 --username。",
+          "浏览器登录要求白泽 0.3.5 或更高版本；旧版本服务端可使用 --password 登录。"
+        ],
+        "en": [
+          "baize-mcp login now opens the Baize authorization page in the system browser and completes the flow after sign-in and approval.",
+          "Browser sign-in uses a one-time authorization code with PKCE S256 verification; callbacks are accepted from loopback addresses only, and the credential is still stored in the operating system credential storage.",
+          "--password keeps terminal sign-in for machines without a browser and still requires --username.",
+          "Browser sign-in requires Baize 0.3.5 or later; older servers can use --password."
+        ]
+      }
+    },
     {
       "version": "0.1.6",
       "tag": "v0.1.6",
